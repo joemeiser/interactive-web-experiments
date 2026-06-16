@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Isometric Dorm Room</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1d24; }
+  #c { display: block; width: 100vw; height: 100vh; }
+  * { box-sizing: border-box; }
+
+  .ui {
+    position: fixed;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #e9edf2;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  #title {
+    top: 18px; left: 20px;
+  }
+  #title h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .2px; }
+  #title p  { margin: 4px 0 0; font-size: 12.5px; color: #9aa4b2; }
+
+  #panel {
+    bottom: 20px; left: 20px;
+    max-width: 320px;
+    background: rgba(22, 26, 33, 0.86);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  #panel.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  #panel .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #panel .head strong { font-size: 13.5px; letter-spacing: .3px; }
+  #panel .body { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #c4ccd6; }
+  #panel .screen {
+    margin-top: 8px; font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; color: #7ee0c0; background: #0c1411;
+    border: 1px solid rgba(126,224,192,0.25); border-radius: 8px; padding: 10px;
+    white-space: pre-wrap;
+  }
+  #panel .x {
+    cursor: pointer; border: 0; background: transparent; color: #9aa4b2;
+    font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+  }
+  #panel .x:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+  #fallback {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center; text-align: center; padding: 32px;
+    font-family: -apple-system, sans-serif; color: #e9edf2; background: #1a1d24;
+  }
+  #fallback div { max-width: 420px; font-size: 15px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="title" class="ui">
+  <h1>Dorm Room</h1>
+  <p>Click the objects — lamp, laptop, poster, bookshelf.</p>
+</div>
+
+<div id="panel" class="ui">
+  <div class="head">
+    <strong id="panelTitle">—</strong>
+    <button class="x" id="panelClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="body" id="panelBody"></div>
+</div>
+
+<div id="fallback">
+  <div><strong>WebGL isn’t available in this browser.</strong><br>
+  This demo needs WebGL to render the 3D room. Try a recent version of Chrome, Firefox, Edge, or Safari with hardware acceleration enabled.</div>
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---- WebGL availability check -------------------------------------------
+  function webglOK() {
+    try {
+      var cv = document.createElement("canvas");
+      return !!(window.WebGLRenderingContext &&
+        (cv.getContext("webgl") || cv.getContext("experimental-webgl")));
+    } catch (e) { return false; }
+  }
+  if (typeof THREE === "undefined" || !webglOK()) {
+    document.getElementById("c").style.display = "none";
+    document.getElementById("fallback").style.display = "flex";
+    if (typeof THREE === "undefined") {
+      document.querySelector("#fallback div").innerHTML =
+        "<strong>Couldn’t load Three.js.</strong><br>This file pulls Three.js from unpkg.com, so it needs an internet connection the first time you open it.";
+    }
+    return;
+  }
+
+  // ---- Renderer ------------------------------------------------------------
+  var canvas = document.getElementById("c");
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  // ---- Scene + camera ------------------------------------------------------
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x20242d);
+
+  var VIEW = 15;
+  var aspect = window.innerWidth / window.innerHeight;
+  var camera = new THREE.OrthographicCamera(
+    -aspect * VIEW / 2, aspect * VIEW / 2, VIEW / 2, -VIEW / 2, 0.1, 1000
+  );
+  camera.position.set(10, 10, 10);
+
+  var controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.4, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI / 2.05; // don't dip below the floor
+  controls.minZoom = 0.6;
+  controls.maxZoom = 2.2;
+  controls.update();
+
+  // ---- Lighting ------------------------------------------------------------
+  var ambient = new THREE.AmbientLight(0xffffff, 0.40);
+  scene.add(ambient);
+
+  var dir = new THREE.DirectionalLight(0xffffff, 0.55);
+  dir.position.set(8, 14, 6);
+  dir.castShadow = true;
+  dir.shadow.mapSize.set(1024, 1024);
+  dir.shadow.camera.near = 0.5;
+  dir.shadow.camera.far = 60;
+  dir.shadow.camera.left = -12;
+  dir.shadow.camera.right = 12;
+  dir.shadow.camera.top = 12;
+  dir.shadow.camera.bottom = -12;
+  dir.shadow.bias = -0.0006;
+  scene.add(dir);
+
+  // Lamp point light (toggled by clicking the lamp)
+  var lampLight = new THREE.PointLight(0xffcf91, 1.35, 16, 2);
+  lampLight.position.set(2.55, 2.55, -3.0);
+  scene.add(lampLight);
+  var lampOn = true;
+
+  // ---- Procedural canvas textures -----------------------------------------
+  function makeCanvas(size) {
+    var cv = document.createElement("canvas");
+    cv.width = cv.height = size;
+    return cv;
+  }
+  function tex(cv) {
+    var t = new THREE.CanvasTexture(cv);
+    t.encoding = THREE.sRGBEncoding;
+    t.anisotropy = 4;
+    return t;
+  }
+
+  function woodTexture() {
+    var cv = makeCanvas(256), g = cv.getContext("2d");
+    g.fillStyle = "#b07a45"; g.fillRect(0, 0, 256, 256);
+    for (var i = 0; i < 256; i += 4) {
+      g.strokeStyle = "rgba(110,70,35," + (0.05 + Math.random() * 0.12) + ")";
+      g.lineWidth = 1 + Math.random() * 2;
+      g.beginPath(); g.moveTo(0, i + Math.sin(i * 0.3) * 2);
+      g.lineTo(256, i + Math.cos(i * 0.2) * 2); g.stroke();
+    }
+    var t = tex(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3);
+    return t;
+  }
+
+  function rugTexture() {
+    var cv = makeCanvas(256), g = cv.getContext("2d");
+    g.fillStyle = "#3b6b7a"; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = "#e8d8b0"; g.lineWidth = 10;
+    g.strokeRect(16, 16, 224, 224);
+    g.strokeStyle = "#c9695a"; g.lineWidth = 6;
+    g.strokeRect(40, 40, 176, 176);
+    for (var i = 0; i < 8; i++) {
+      g.fillStyle = i % 2 ? "#e8d8b0" : "#c9695a";
+      g.beginPath(); g.arc(128, 128, 12 + i * 8, 0, Math.PI * 2); g.stroke();
+    }
+    return tex(cv);
+  }
+
+  function posterTexture() {
+    var cv = makeCanvas(256), g = cv.getContext("2d");
+    var grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, "#241b3a"); grad.addColorStop(1, "#7a2f5e");
+    g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+    // sun
+    g.fillStyle = "#ffb347"; g.beginPath(); g.arc(128, 150, 60, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#241b3a";
+    for (var y = 150; y < 210; y += 14) g.fillRect(60, y, 136, 6);
+    // mountains
+    g.fillStyle = "#13202b";
+    g.beginPath(); g.moveTo(0, 256); g.lineTo(70, 150); g.lineTo(140, 256); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(110, 256); g.lineTo(190, 130); g.lineTo(256, 256); g.closePath(); g.fill();
+    g.fillStyle = "#ffe6a8"; g.font = "bold 22px sans-serif"; g.textAlign = "center";
+    g.fillText("STAY CURIOUS", 128, 36);
+    return tex(cv);
+  }
+
+  function skyTexture() {
+    var cv = makeCanvas(256), g = cv.getContext("2d");
+    var grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, "#9bd0f0"); grad.addColorStop(0.6, "#cfe9f7"); grad.addColorStop(1, "#eef7e8");
+    g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = "rgba(255,255,255,0.85)";
+    function cloud(x, y, s) {
+      g.beginPath();
+      g.arc(x, y, 16 * s, 0, 7); g.arc(x + 18 * s, y + 4 * s, 20 * s, 0, 7);
+      g.arc(x + 40 * s, y, 15 * s, 0, 7); g.fill();
+    }
+    cloud(60, 70, 1); cloud(150, 130, 1.3); cloud(40, 180, 0.8);
+    return tex(cv);
+  }
+
+  function screenTexture() {
+    var cv = makeCanvas(256), g = cv.getContext("2d");
+    g.fillStyle = "#0c1411"; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = "#7ee0c0"; g.font = "16px monospace";
+    g.fillText("> dorm.exe", 18, 40);
+    g.fillStyle = "#5fd6f0"; g.font = "13px monospace";
+    g.fillText("loading room...", 18, 70);
+    g.fillStyle = "#9aa4b2";
+    g.fillText("[ click me ]", 18, 100);
+    g.strokeStyle = "#7ee0c0"; g.strokeRect(18, 120, 220, 60);
+    g.fillStyle = "#7ee0c0"; g.fillRect(20, 122, 90 + Math.random() * 100, 56);
+    return tex(cv);
+  }
+
+  // ---- Material helpers ----------------------------------------------------
+  function std(color, opts) {
+    opts = opts || {};
+    var m = new THREE.MeshStandardMaterial({
+      color: color,
+      roughness: opts.roughness != null ? opts.roughness : 0.85,
+      metalness: opts.metalness != null ? opts.metalness : 0.0,
+      map: opts.map || null,
+      emissive: new THREE.Color(0x000000)
+    });
+    m.userData.origEmissive = 0x000000;
+    return m;
+  }
+  function box(w, h, d, mat) {
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.castShadow = true; m.receiveShadow = true;
+    return m;
+  }
+
+  // ---- Room shell ----------------------------------------------------------
+  var SIZE = 10, WALL_H = 6;
+
+  var floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(SIZE, SIZE),
+    std(0xffffff, { map: woodTexture(), roughness: 0.7 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // back wall (-Z), inner face toward +Z
+  var wallMat = std(0xe7e2d6, { roughness: 0.95 });
+  var wallZ = box(SIZE, WALL_H, 0.2, wallMat);
+  wallZ.position.set(0, WALL_H / 2, -SIZE / 2);
+  scene.add(wallZ);
+  // side wall (-X), inner face toward +X
+  var wallX = box(0.2, WALL_H, SIZE, std(0xd9d2c2, { roughness: 0.95 }));
+  wallX.position.set(-SIZE / 2, WALL_H / 2, 0);
+  scene.add(wallX);
+
+  // baseboards
+  var bbMat = std(0xc9c0ad, { roughness: 0.8 });
+  var bbZ = box(SIZE, 0.3, 0.06, bbMat); bbZ.position.set(0, 0.15, -SIZE / 2 + 0.13); scene.add(bbZ);
+  var bbX = box(0.06, 0.3, SIZE, bbMat); bbX.position.set(-SIZE / 2 + 0.13, 0.15, 0); scene.add(bbX);
+
+  // window on back wall
+  var winGroup = new THREE.Group();
+  var frame = box(2.6, 2.2, 0.12, std(0xffffff, { roughness: 0.5 }));
+  var pane = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.8),
+    std(0xffffff, { map: skyTexture(), roughness: 0.2, metalness: 0.0 }));
+  pane.position.z = 0.07; pane.material.emissive = new THREE.Color(0x88aacc);
+  pane.material.emissiveIntensity = 0.15;
+  var barV = box(0.08, 1.8, 0.14, std(0xffffff)); barV.position.z = 0.05;
+  var barH = box(2.2, 0.08, 0.14, std(0xffffff)); barH.position.z = 0.05;
+  winGroup.add(frame, pane, barV, barH);
+  winGroup.position.set(-2.4, 3.6, -SIZE / 2 + 0.12);
+  scene.add(winGroup);
+
+  // ---- Clickable registry --------------------------------------------------
+  var clickables = []; // root groups w/ userData.kind
+  function registerClickable(root, kind) {
+    root.userData.clickable = true;
+    root.userData.kind = kind;
+    root.traverse(function (o) {
+      if (o.isMesh) {
+        o.userData.rootRef = root;
+        if (!o.material.userData) o.material.userData = {};
+        if (o.material.userData.origEmissive == null) {
+          o.material.userData.origEmissive = o.material.emissive.getHex();
+        }
+      }
+    });
+    clickables.push(root);
+  }
+
+  // ---- Bed -----------------------------------------------------------------
+  (function () {
+    var g = new THREE.Group();
+    var frameMat = std(0x6f4e37, { roughness: 0.7 });
+    var base = box(2.0, 0.5, 3.6, frameMat); base.position.y = 0.45; g.add(base);
+    var mattress = box(1.9, 0.4, 3.3, std(0xf3ede0, { roughness: 0.95 }));
+    mattress.position.y = 0.85; g.add(mattress);
+    var head = box(2.1, 1.3, 0.25, frameMat); head.position.set(0, 1.0, -1.85); g.add(head);
+    var blanket = box(1.92, 0.18, 2.2, std(0x3f7d8c, { roughness: 0.95 }));
+    blanket.position.set(0, 1.06, 0.45); g.add(blanket);
+    var pillow = box(1.5, 0.3, 0.7, std(0xffffff, { roughness: 1.0 }));
+    pillow.position.set(0, 1.1, -1.35); g.add(pillow);
+    g.position.set(-3.3, 0, -0.6);
+    scene.add(g);
+  })();
+
+  // ---- Rug -----------------------------------------------------------------
+  (function () {
+    var rug = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.6),
+      std(0xffffff, { map: rugTexture(), roughness: 0.95 }));
+    rug.rotation.x = -Math.PI / 2; rug.position.set(0.6, 0.02, 1.4);
+    rug.receiveShadow = true; scene.add(rug);
+  })();
+
+  // ---- Desk + lamp + laptop ------------------------------------------------
+  var deskGroup = new THREE.Group();
+  (function () {
+    var top = box(3.2, 0.16, 1.3, std(0x8a5a3b, { roughness: 0.6 }));
+    top.position.y = 1.5; deskGroup.add(top);
+    var legMat = std(0x5b3c27, { roughness: 0.7 });
+    [[-1.45, -0.5], [1.45, -0.5], [-1.45, 0.5], [1.45, 0.5]].forEach(function (p) {
+      var leg = box(0.14, 1.5, 0.14, legMat); leg.position.set(p[0], 0.75, p[1]);
+      deskGroup.add(leg);
+    });
+    var drawer = box(1.0, 0.9, 1.1, std(0x73492f, { roughness: 0.7 }));
+    drawer.position.set(1.0, 0.85, 0); deskGroup.add(drawer);
+    deskGroup.position.set(2.4, 0, -3.6);
+  })();
+  scene.add(deskGroup);
+
+  // Desk lamp (clickable)
+  var lampGroup = new THREE.Group();
+  (function () {
+    var metal = std(0x2b2b30, { roughness: 0.4, metalness: 0.6 });
+    var foot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.08, 20), metal);
+    foot.position.y = 0.04; foot.castShadow = true; lampGroup.add(foot);
+    var stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0, 12), metal);
+    stem.position.y = 0.55; stem.castShadow = true; lampGroup.add(stem);
+    var arm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.7, 12), metal);
+    arm.position.set(0.25, 1.0, 0); arm.rotation.z = -Math.PI / 3; arm.castShadow = true; lampGroup.add(arm);
+    var shade = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.4, 24, 1, true),
+      std(0xe9c46a, { roughness: 0.6, metalness: 0.1 }));
+    shade.material.side = THREE.DoubleSide;
+    shade.position.set(0.52, 1.18, 0); shade.rotation.z = Math.PI; shade.castShadow = true;
+    lampGroup.add(shade);
+    var bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16),
+      std(0x111111, { roughness: 0.3 }));
+    bulb.material.emissive = new THREE.Color(0xffcf91);
+    bulb.material.emissiveIntensity = lampOn ? 1.0 : 0.0;
+    bulb.position.set(0.52, 1.05, 0); lampGroup.add(bulb);
+    lampGroup.userData.bulb = bulb;
+    lampGroup.position.set(2.0, 1.58, -3.7); // sits on desk top
+  })();
+  scene.add(lampGroup);
+  registerClickable(lampGroup, "lamp");
+
+  // Laptop (clickable)
+  var laptopGroup = new THREE.Group();
+  (function () {
+    var body = std(0xbfc6cf, { roughness: 0.4, metalness: 0.5 });
+    var base = box(1.0, 0.05, 0.7, body); base.position.y = 0.025; laptopGroup.add(base);
+    var lid = box(1.0, 0.62, 0.04, body);
+    lid.position.set(0, 0.33, -0.33); lid.rotation.x = -0.32; laptopGroup.add(lid);
+    var scr = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.54),
+      std(0x000000, { map: screenTexture(), roughness: 0.3 }));
+    scr.material.emissive = new THREE.Color(0xffffff);
+    scr.material.emissiveMap = scr.material.map;
+    scr.material.emissiveIntensity = 0.9;
+    scr.position.set(0, 0.33, -0.31); scr.rotation.x = -0.32;
+    laptopGroup.add(scr);
+    laptopGroup.position.set(2.95, 1.585, -3.55);
+    laptopGroup.rotation.y = -0.5;
+  })();
+  scene.add(laptopGroup);
+  registerClickable(laptopGroup, "laptop");
+
+  // ---- Chair ---------------------------------------------------------------
+  (function () {
+    var g = new THREE.Group();
+    var seatMat = std(0x394150, { roughness: 0.8 });
+    var seat = box(0.9, 0.12, 0.9, seatMat); seat.position.y = 0.95; g.add(seat);
+    var back = box(0.9, 1.0, 0.12, seatMat); back.position.set(0, 1.45, -0.4); g.add(back);
+    var legMat = std(0x1f242d, { roughness: 0.5, metalness: 0.5 });
+    [[-0.38, -0.38], [0.38, -0.38], [-0.38, 0.38], [0.38, 0.38]].forEach(function (p) {
+      var leg = box(0.08, 0.95, 0.08, legMat); leg.position.set(p[0], 0.475, p[1]); g.add(leg);
+    });
+    g.position.set(2.2, 0, -2.2); g.rotation.y = Math.PI;
+    scene.add(g);
+  })();
+
+  // ---- Bookshelf (clickable; a book slides out) ----------------------------
+  var shelfGroup = new THREE.Group();
+  var slideBook = null;
+  (function () {
+    var woodMat = std(0x7a5230, { roughness: 0.7 });
+    var W = 2.4, H = 3.4, D = 0.9;
+    var left = box(0.12, H, D, woodMat); left.position.set(-W / 2, H / 2, 0); shelfGroup.add(left);
+    var right = box(0.12, H, D, woodMat); right.position.set(W / 2, H / 2, 0); shelfGroup.add(right);
+    var backP = box(W, H, 0.08, std(0x5e3f24, { roughness: 0.8 }));
+    backP.position.set(0, H / 2, -D / 2 + 0.04); shelfGroup.add(backP);
+    var shelfYs = [0.1, 1.2, 2.3, 3.3];
+    shelfYs.forEach(function (y) {
+      var s = box(W, 0.1, D, woodMat); s.position.set(0, y, 0); shelfGroup.add(s);
+    });
+    // books
+    var cols = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#c0392b", "#2c3e50"];
+    var rows = [0.62, 1.72, 2.82];
+    rows.forEach(function (ry, ri) {
+      var x = -W / 2 + 0.28;
+      for (var i = 0; i < 7 && x < W / 2 - 0.18; i++) {
+        var bw = 0.12 + Math.random() * 0.08;
+        var bh = 0.78 + Math.random() * 0.18;
+        var bk = box(bw, bh, 0.55, std(cols[(ri * 7 + i) % cols.length], { roughness: 0.85 }));
+        bk.position.set(x + bw / 2, ry + bh / 2 - 0.08, -0.05);
+        shelfGroup.add(bk);
+        if (ri === 1 && i === 2) { slideBook = bk; bk.userData.baseZ = bk.position.z; }
+        x += bw + 0.04;
+      }
+    });
+    shelfGroup.position.set(-1.4, 0, -SIZE / 2 + 0.55);
+  })();
+  scene.add(shelfGroup);
+  registerClickable(shelfGroup, "bookshelf");
+  var bookOut = false;
+
+  // ---- Poster (clickable) --------------------------------------------------
+  var posterGroup = new THREE.Group();
+  (function () {
+    var p = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.8),
+      std(0xffffff, { map: posterTexture(), roughness: 0.9 }));
+    p.castShadow = false; posterGroup.add(p);
+    posterGroup.position.set(-SIZE / 2 + 0.12, 3.6, 0.4);
+    posterGroup.rotation.y = Math.PI / 2; // faces +X into room
+  })();
+  scene.add(posterGroup);
+  registerClickable(posterGroup, "poster");
+
+  // ---- Raycaster + interaction --------------------------------------------
+  var raycaster = new THREE.Raycaster();
+  var pointer = new THREE.Vector2();
+  var hovered = null;
+  var HL = 0x3a3a18; // emissive highlight tint
+
+  function setEmissive(root, hex) {
+    root.traverse(function (o) {
+      if (o.isMesh && o.material && o.userData.rootRef === root) {
+        o.material.emissive.setHex(hex);
+      }
+    });
+  }
+  function restoreEmissive(root) {
+    root.traverse(function (o) {
+      if (o.isMesh && o.material && o.userData.rootRef === root) {
+        o.material.emissive.setHex(o.material.userData.origEmissive || 0x000000);
+      }
+    });
+  }
+
+  function pickRoot(clientX, clientY) {
+    pointer.x = (clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    var hits = raycaster.intersectObjects(clickables, true);
+    if (!hits.length) return null;
+    return hits[0].object.userData.rootRef || null;
+  }
+
+  renderer.domElement.addEventListener("pointermove", function (e) {
+    var root = pickRoot(e.clientX, e.clientY);
+    if (root !== hovered) {
+      if (hovered) restoreEmissive(hovered);
+      hovered = root;
+      if (hovered) setEmissive(hovered, HL);
+      document.body.style.cursor = hovered ? "pointer" : "default";
+    }
+  });
+
+  var draggingMoved = false, downX = 0, downY = 0;
+  renderer.domElement.addEventListener("pointerdown", function (e) {
+    draggingMoved = false; downX = e.clientX; downY = e.clientY;
+  });
+  renderer.domElement.addEventListener("pointermove", function (e) {
+    if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) draggingMoved = true;
+  });
+  renderer.domElement.addEventListener("pointerup", function (e) {
+    if (draggingMoved) return; // it was an orbit drag, not a click
+    var root = pickRoot(e.clientX, e.clientY);
+    if (root) act(root.userData.kind, root);
+  });
+
+  // ---- Actions -------------------------------------------------------------
+  var panel = document.getElementById("panel");
+  var panelTitle = document.getElementById("panelTitle");
+  var panelBody = document.getElementById("panelBody");
+  document.getElementById("panelClose").addEventListener("click", function () {
+    panel.classList.remove("show");
+  });
+  function showPanel(title, html) {
+    panelTitle.textContent = title;
+    panelBody.innerHTML = html;
+    panel.classList.add("show");
+  }
+
+  function act(kind, root) {
+    if (kind === "lamp") {
+      lampOn = !lampOn;
+      lampLight.visible = lampOn;
+      ambient.intensity = lampOn ? 0.40 : 0.18;
+      dir.intensity = lampOn ? 0.55 : 0.30;
+      scene.background.setHex(lampOn ? 0x20242d : 0x14161c);
+      if (root.userData.bulb) {
+        root.userData.bulb.material.emissiveIntensity = lampOn ? 1.0 : 0.0;
+      }
+      showPanel("Desk Lamp", "Light is now <strong>" + (lampOn ? "on" : "off") + "</strong>. Click again to toggle.");
+    } else if (kind === "poster") {
+      showPanel("Wall Poster", "<em>“Stay Curious.”</em> A risograph travel print — the kind every dorm wall eventually accumulates.");
+    } else if (kind === "laptop") {
+      showPanel("Laptop", "Screen output:" +
+        "<div class='screen'>> dorm.exe --status\nroom: rendered ✓\nlight: " +
+        (lampOn ? "on" : "off") + "\nobjects: 4 interactive\n> idle...</div>");
+    } else if (kind === "bookshelf") {
+      bookOut = !bookOut;
+      if (slideBook) slideBook.userData.targetZ = slideBook.userData.baseZ + (bookOut ? 0.5 : 0);
+      showPanel("Bookshelf", "Pulled out: <strong>“The Pragmatic Programmer”</strong>. Click the shelf again to slide it back.");
+    }
+  }
+
+  // ---- Resize --------------------------------------------------------------
+  window.addEventListener("resize", function () {
+    aspect = window.innerWidth / window.innerHeight;
+    camera.left = -aspect * VIEW / 2;
+    camera.right = aspect * VIEW / 2;
+    camera.top = VIEW / 2;
+    camera.bottom = -VIEW / 2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  });
+
+  // ---- Animation loop ------------------------------------------------------
+  function animate() {
+    requestAnimationFrame(animate);
+    if (slideBook) {
+      var t = slideBook.userData.targetZ != null ? slideBook.userData.targetZ : slideBook.userData.baseZ;
+      slideBook.position.z += (t - slideBook.position.z) * 0.15;
+    }
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

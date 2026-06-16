@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Driftfield — generative particle field</title>
+<style>
+  :root {
+    --ink: #e9ecf5;
+    --ink-dim: rgba(233, 236, 245, 0.45);
+    --line: rgba(233, 236, 245, 0.16);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #050507; overflow: hidden; }
+  #scene { position: fixed; inset: 0; display: block; }
+
+  /* Overlay: a thin instrument label rather than a marketing hero. */
+  #ui {
+    position: fixed;
+    top: 22px; left: 24px;
+    pointer-events: none;
+    color: var(--ink);
+    font-family: "SFMono-Regular", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    text-shadow: 0 1px 18px rgba(0,0,0,0.6);
+    user-select: none;
+  }
+  #ui .title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    display: inline-block;
+  }
+  #ui .hint {
+    margin-top: 10px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-dim);
+  }
+  #ui .hint b { color: var(--ink); font-weight: 600; }
+
+  /* Phase readout, bottom-left, mirrors the title's register. */
+  #phase {
+    position: fixed;
+    bottom: 20px; left: 24px;
+    pointer-events: none;
+    color: var(--ink-dim);
+    font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+  }
+  #phase b { color: var(--ink); font-weight: 600; }
+
+  #fallback {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 32px;
+    text-align: center;
+    color: var(--ink);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  #fallback span { max-width: 420px; }
+  @media (max-width: 520px) {
+    #ui .title { letter-spacing: 0.3em; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="ui">
+    <div class="title">Driftfield</div>
+    <div class="hint">Move the cursor to <b>part the field</b>.</div>
+  </div>
+  <div id="phase">field: <b id="phase-name">drift</b></div>
+
+  <div id="fallback"><span></span></div>
+
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    var fallback = document.getElementById("fallback");
+    function fail(msg) {
+      fallback.style.display = "flex";
+      fallback.querySelector("span").textContent = msg;
+    }
+
+    // --- Guard: library + WebGL availability ---------------------------------
+    if (typeof THREE === "undefined") {
+      fail("Couldn't load Three.js. This page needs internet access the first time it runs (it pulls three@0.128 from unpkg).");
+      return;
+    }
+    (function () {
+      try {
+        var c = document.createElement("canvas");
+        if (!(window.WebGLRenderingContext &&
+              (c.getContext("webgl") || c.getContext("experimental-webgl")))) {
+          fail("WebGL is unavailable in this browser, so the particle field can't render.");
+          throw new Error("no-webgl");
+        }
+      } catch (e) {
+        if (e.message === "no-webgl") return;
+        fail("WebGL is unavailable in this browser, so the particle field can't render.");
+      }
+    })();
+    if (fallback.style.display === "flex") return;
+
+    // --- Core objects --------------------------------------------------------
+    var COUNT = 45000;
+    var canvas = document.getElementById("scene");
+    var renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: false
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x050507, 1);
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(
+      55, window.innerWidth / window.innerHeight, 0.1, 1000
+    );
+    camera.position.set(0, 0, 78);
+
+    // --- Soft round point sprite, drawn at runtime (no external assets) ------
+    function makeSprite() {
+      var s = 64, c = document.createElement("canvas");
+      c.width = c.height = s;
+      var g = c.getContext("2d");
+      var grd = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+      grd.addColorStop(0.0, "rgba(255,255,255,1)");
+      grd.addColorStop(0.2, "rgba(255,255,255,0.85)");
+      grd.addColorStop(0.5, "rgba(255,255,255,0.25)");
+      grd.addColorStop(1.0, "rgba(255,255,255,0)");
+      g.fillStyle = grd;
+      g.fillRect(0, 0, s, s);
+      var tex = new THREE.CanvasTexture(c);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // --- Geometry: home (field) + sphere + ring targets, color, seed ---------
+    var FIELD = { x: 78, y: 46, z: 38 };
+    var R_SPHERE = 24;
+    var R_RING = 26, r_RING = 6;
+
+    var home   = new Float32Array(COUNT * 3);
+    var sphere = new Float32Array(COUNT * 3);
+    var ring   = new Float32Array(COUNT * 3);
+    var color  = new Float32Array(COUNT * 3);
+    var seed   = new Float32Array(COUNT);
+
+    // palette stops (blue -> magenta -> teal), mixed per-particle
+    var cA = [0.16, 0.52, 1.00];
+    var cB = [0.92, 0.22, 0.85];
+    var cC = [0.20, 1.00, 0.74];
+
+    function mix3(a, b, t, out) {
+      out[0] = a[0] + (b[0] - a[0]) * t;
+      out[1] = a[1] + (b[1] - a[1]) * t;
+      out[2] = a[2] + (b[2] - a[2]) * t;
+    }
+    var tmp = [0, 0, 0];
+
+    for (var i = 0; i < COUNT; i++) {
+      var i3 = i * 3;
+
+      // field: random within a flattened box
+      var hx = (Math.random() * 2 - 1) * FIELD.x;
+      var hy = (Math.random() * 2 - 1) * FIELD.y;
+      var hz = (Math.random() * 2 - 1) * FIELD.z;
+      home[i3] = hx; home[i3 + 1] = hy; home[i3 + 2] = hz;
+
+      // sphere: uniform direction * radius (with slight shell thickness)
+      var u = Math.random() * 2 - 1;
+      var th = Math.random() * Math.PI * 2;
+      var rr = Math.sqrt(1 - u * u);
+      var rad = R_SPHERE * (0.94 + Math.random() * 0.06);
+      sphere[i3]     = Math.cos(th) * rr * rad;
+      sphere[i3 + 1] = u * rad;
+      sphere[i3 + 2] = Math.sin(th) * rr * rad;
+
+      // ring: torus
+      var a = Math.random() * Math.PI * 2;
+      var b = Math.random() * Math.PI * 2;
+      var rg = R_RING + Math.cos(b) * r_RING;
+      ring[i3]     = Math.cos(a) * rg;
+      ring[i3 + 1] = Math.sin(b) * r_RING;
+      ring[i3 + 2] = Math.sin(a) * rg;
+
+      // color: blend by normalized height, then nudge toward teal by |x|
+      var ty = (hy / FIELD.y) * 0.5 + 0.5;
+      mix3(cA, cB, ty, tmp);
+      var tx = Math.min(1, Math.abs(hx) / FIELD.x);
+      mix3(tmp, cC, tx * 0.5, tmp);
+      color[i3] = tmp[0]; color[i3 + 1] = tmp[1]; color[i3 + 2] = tmp[2];
+
+      seed[i] = Math.random() * 100;
+    }
+
+    var geo = new THREE.BufferGeometry();
+    // 'position' attribute is required by THREE; we don't read it (base comes
+    // from the home/sphere/ring attributes) but it must exist and be valid.
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(home.slice(), 3));
+    geo.setAttribute("aHome",   new THREE.Float32BufferAttribute(home, 3));
+    geo.setAttribute("aSphere", new THREE.Float32BufferAttribute(sphere, 3));
+    geo.setAttribute("aRing",   new THREE.Float32BufferAttribute(ring, 3));
+    geo.setAttribute("aColor",  new THREE.Float32BufferAttribute(color, 3));
+    geo.setAttribute("aSeed",   new THREE.Float32BufferAttribute(seed, 1));
+
+    // --- Shaders (GLSL ES 1.0; WebGL1 — valid in r128) -----------------------
+    var SNOISE = [
+      "vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}",
+      "vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}",
+      "vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}",
+      "vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}",
+      "float snoise(vec3 v){",
+      "  const vec2 C=vec2(1.0/6.0,1.0/3.0);",
+      "  const vec4 D=vec4(0.0,0.5,1.0,2.0);",
+      "  vec3 i=floor(v+dot(v,C.yyy));",
+      "  vec3 x0=v-i+dot(i,C.xxx);",
+      "  vec3 g=step(x0.yzx,x0.xyz);",
+      "  vec3 l=1.0-g;",
+      "  vec3 i1=min(g.xyz,l.zxy);",
+      "  vec3 i2=max(g.xyz,l.zxy);",
+      "  vec3 x1=x0-i1+C.xxx;",
+      "  vec3 x2=x0-i2+C.yyy;",
+      "  vec3 x3=x0-D.yyy;",
+      "  i=mod289(i);",
+      "  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));",
+      "  float n_=0.142857142857;",
+      "  vec3 ns=n_*D.wyz-D.xzx;",
+      "  vec4 j=p-49.0*floor(p*ns.z*ns.z);",
+      "  vec4 x_=floor(j*ns.z);",
+      "  vec4 y_=floor(j-7.0*x_);",
+      "  vec4 x=x_*ns.x+ns.yyyy;",
+      "  vec4 y=y_*ns.x+ns.yyyy;",
+      "  vec4 h=1.0-abs(x)-abs(y);",
+      "  vec4 b0=vec4(x.xy,y.xy);",
+      "  vec4 b1=vec4(x.zw,y.zw);",
+      "  vec4 s0=floor(b0)*2.0+1.0;",
+      "  vec4 s1=floor(b1)*2.0+1.0;",
+      "  vec4 sh=-step(h,vec4(0.0));",
+      "  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;",
+      "  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;",
+      "  vec3 p0=vec3(a0.xy,h.x);",
+      "  vec3 p1=vec3(a0.zw,h.y);",
+      "  vec3 p2=vec3(a1.xy,h.z);",
+      "  vec3 p3=vec3(a1.zw,h.w);",
+      "  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));",
+      "  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;",
+      "  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);",
+      "  m=m*m;",
+      "  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));",
+      "}"
+    ].join("\n");
+
+    var vert = [
+      "attribute vec3 aHome;",
+      "attribute vec3 aSphere;",
+      "attribute vec3 aRing;",
+      "attribute vec3 aColor;",
+      "attribute float aSeed;",
+      "uniform float uTime;",
+      "uniform vec3 uMouse;",
+      "uniform float uMouseActive;",
+      "uniform float wHome;",
+      "uniform float wSphere;",
+      "uniform float wRing;",
+      "uniform float uSize;",
+      "uniform float uPixelRatio;",
+      "varying vec3 vColor;",
+      SNOISE,
+      "void main(){",
+      "  vec3 base = aHome*wHome + aSphere*wSphere + aRing*wRing;",
+      "  float driftAmp = mix(0.7, 6.5, wHome);", // crisp in shapes, fluid in field
+      "  float t = uTime * 0.14;",
+      "  float f = 0.045;",
+      "  vec3 q = base * f;",
+      "  vec3 drift;",
+      "  drift.x = snoise(q + vec3(0.0, t, aSeed));",
+      "  drift.y = snoise(q + vec3(t, aSeed, 0.0));",
+      "  drift.z = snoise(q + vec3(aSeed, 0.0, t));",
+      "  vec3 pos = base + drift * driftAmp;",
+      "  vec3 away = pos - uMouse;",
+      "  float d = length(away);",
+      "  float force = (1.0 - smoothstep(0.0, 18.0, d)) * uMouseActive;",
+      "  pos += normalize(away + vec3(0.0001)) * force * 15.0;",
+      "  vColor = aColor;",
+      "  vec4 mv = modelViewMatrix * vec4(pos, 1.0);",
+      "  gl_PointSize = clamp(uSize * uPixelRatio * (300.0 / -mv.z), 1.0, 36.0);",
+      "  gl_Position = projectionMatrix * mv;",
+      "}"
+    ].join("\n");
+
+    var frag = [
+      "precision mediump float;",
+      "uniform sampler2D uTex;",
+      "varying vec3 vColor;",
+      "void main(){",
+      "  vec4 tex = texture2D(uTex, gl_PointCoord);",
+      "  float a = tex.a;",
+      "  if (a < 0.02) discard;",
+      "  gl_FragColor = vec4(vColor * a, a);",
+      "}"
+    ].join("\n");
+
+    var uniforms = {
+      uTime:        { value: 0 },
+      uMouse:       { value: new THREE.Vector3(9999, 9999, 9999) },
+      uMouseActive: { value: 0 },
+      wHome:        { value: 1 },
+      wSphere:      { value: 0 },
+      wRing:        { value: 0 },
+      uSize:        { value: 2.1 },
+      uPixelRatio:  { value: renderer.getPixelRatio() },
+      uTex:         { value: makeSprite() }
+    };
+
+    var material = new THREE.ShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: vert,
+      fragmentShader: frag,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    var points = new THREE.Points(geo, material);
+    scene.add(points);
+
+    // --- Mouse: unproject to z=0 plane, smoothed for a trailing pull --------
+    var raycaster = new THREE.Raycaster();
+    var ndc = new THREE.Vector2();
+    var plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    var hit = new THREE.Vector3();
+    var mouseTarget = new THREE.Vector3(9999, 9999, 9999);
+    var mouseActiveTarget = 0;
+
+    function onMove(clientX, clientY) {
+      ndc.x = (clientX / window.innerWidth) * 2 - 1;
+      ndc.y = -(clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.ray.intersectPlane(plane, hit)) {
+        mouseTarget.copy(hit);
+        mouseActiveTarget = 1;
+      }
+    }
+    window.addEventListener("pointermove", function (e) { onMove(e.clientX, e.clientY); });
+    window.addEventListener("pointerdown", function (e) { onMove(e.clientX, e.clientY); });
+    window.addEventListener("pointerleave", function () { mouseActiveTarget = 0; });
+    window.addEventListener("touchmove", function (e) {
+      if (e.touches.length) onMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    // --- Morph schedule: field -> sphere -> field -> ring -> loop -----------
+    var schedule = [
+      { name: "drift",  w: [1, 0, 0], hold: 6.5 },
+      { name: "sphere", w: [0, 1, 0], hold: 5.0 },
+      { name: "drift",  w: [1, 0, 0], hold: 3.5 },
+      { name: "ring",   w: [0, 0, 1], hold: 5.0 }
+    ];
+    var phase = 0, phaseT = 0;
+    var phaseName = document.getElementById("phase-name");
+    var curW = [1, 0, 0];
+
+    // --- Resize --------------------------------------------------------------
+    function resize() {
+      var w = window.innerWidth, h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(w, h);
+      uniforms.uPixelRatio.value = renderer.getPixelRatio();
+    }
+    window.addEventListener("resize", resize);
+
+    // --- Loop ----------------------------------------------------------------
+    var clock = new THREE.Clock();
+    var reduceMotion = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function frame() {
+      var dt = Math.min(clock.getDelta(), 0.05);
+      uniforms.uTime.value += reduceMotion ? dt * 0.25 : dt;
+
+      // advance morph schedule
+      phaseT += dt;
+      if (phaseT > schedule[phase].hold) {
+        phase = (phase + 1) % schedule.length;
+        phaseT = 0;
+        phaseName.textContent = schedule[phase].name;
+      }
+      var target = schedule[phase].w;
+      var k = Math.min(1, dt * 1.6);
+      for (var j = 0; j < 3; j++) curW[j] += (target[j] - curW[j]) * k;
+      uniforms.wHome.value   = curW[0];
+      uniforms.wSphere.value = curW[1];
+      uniforms.wRing.value   = curW[2];
+
+      // smooth the cursor pull
+      uniforms.uMouse.value.lerp(mouseTarget, Math.min(1, dt * 6));
+      uniforms.uMouseActive.value +=
+        (mouseActiveTarget - uniforms.uMouseActive.value) * Math.min(1, dt * 4);
+
+      points.rotation.y += dt * 0.04;
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+
+    // context-loss guard so a lost GPU context doesn't go silently blank
+    canvas.addEventListener("webglcontextlost", function (e) {
+      e.preventDefault();
+      fail("The WebGL context was lost (often a GPU/driver hiccup). Reload to restart the field.");
+    });
+
+    resize();
+    requestAnimationFrame(frame);
+  })();
+  </script>
+</body>
+</html>

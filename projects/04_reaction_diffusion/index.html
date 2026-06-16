@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Gray-Scott — GPU Artificial Life</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+  #overlay {
+    position: fixed; top: 18px; left: 20px; pointer-events: none; user-select: none;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: rgba(255,255,255,0.82);
+    text-shadow: 0 1px 8px rgba(0,0,0,0.9); line-height: 1.4;
+  }
+  #overlay h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  #overlay p  { margin: 4px 0 0; font-size: 12px; opacity: 0.7; }
+  #msg {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    padding: 40px; text-align: center; color: #ddd; background: #0a0a12;
+    font-family: system-ui, sans-serif; font-size: 16px; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <h1>Gray-Scott Reaction-Diffusion</h1>
+  <p>click and drag to seed life</p>
+</div>
+<div id="msg"></div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script>
+"use strict";
+
+/* ============================================================
+   TUNABLE CONSTANTS — change these to steer the pattern regime
+   ------------------------------------------------------------
+   feed/kill presets (set FEED + KILL below):
+     worms / coral      : 0.0550 / 0.0620   (default — grows, crawls)
+     mitosis / splitting: 0.0367 / 0.0649   (cells divide)
+     spots / bubbles    : 0.0300 / 0.0620
+     maze / stripes     : 0.0290 / 0.0570
+     u-skate (gliders)  : 0.0620 / 0.0610
+   ============================================================ */
+const FEED      = 0.0550;  // feed rate F
+const KILL      = 0.0620;  // kill rate k
+const DA        = 1.00;    // diffusion of chemical A
+const DB        = 0.50;    // diffusion of chemical B
+const DT        = 1.00;    // timestep (1.0 is stable with the 9-pt Laplacian)
+const SIM_STEPS = 8;       // simulation sub-steps per displayed frame
+const SIM_MAX   = 640;     // longest sim grid dimension (perf vs detail)
+const BRUSH     = 0.030;   // mouse brush radius (uv units, aspect-corrected)
+const SEED_R    = 0.035;   // radius of initial random life patches
+const NUM_SEEDS = 24;      // fixed array size in shader; extras parked off-grid
+
+/* ---------- bootstrap renderer with hard support checks ---------- */
+const canvas = document.getElementById('c');
+function fail(text){
+  const m = document.getElementById('msg');
+  m.textContent = text;
+  m.style.display = 'flex';
+  canvas.style.display = 'none';
+  document.getElementById('overlay').style.display = 'none';
+}
+
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
+} catch (e) {
+  renderer = null;
+}
+if (!renderer) {
+  fail("WebGL is unavailable in this browser, so the simulation can't run. Try a recent version of Chrome, Edge, or Firefox.");
+} else {
+  const gl = renderer.getContext();
+  const isWebGL2 = (typeof WebGL2RenderingContext !== 'undefined') && (gl instanceof WebGL2RenderingContext);
+  let floatRenderOK = false;
+  if (isWebGL2) {
+    // EXT_color_buffer_float makes RGBA16F / RGBA32F color-renderable in WebGL2.
+    floatRenderOK = !!gl.getExtension('EXT_color_buffer_float');
+  } else {
+    // WebGL1 fallback path (best-effort).
+    const hf = gl.getExtension('OES_texture_half_float');
+    const hfl = gl.getExtension('OES_texture_half_float_linear');
+    floatRenderOK = !!(hf && hfl);
+  }
+  if (!floatRenderOK) {
+    fail("This GPU/browser can't render to floating-point textures, which the simulation requires. Try updating your graphics drivers or using a different browser.");
+  } else {
+    start();
+  }
+}
+
+/* ---------- main ---------- */
+function start() {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const scene  = new THREE.Scene();
+  const quad   = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+  scene.add(quad);
+
+  const RT_TYPE = (typeof THREE.HalfFloatType !== 'undefined') ? THREE.HalfFloatType : THREE.FloatType;
+
+  function makeRT(w, h) {
+    return new THREE.WebGLRenderTarget(w, h, {
+      type: RT_TYPE,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,   // core-linear in WebGL2; smooth upscale on display
+      magFilter: THREE.LinearFilter,   // sim samples at texel centers, so still exact
+      wrapS: THREE.RepeatWrapping,     // toroidal world — patterns wrap around edges
+      wrapT: THREE.RepeatWrapping,
+      depthBuffer: false,
+      stencilBuffer: false
+    });
+  }
+
+  let simW = 0, simH = 0, current, next;
+
+  function computeRes() {
+    const a = window.innerWidth / window.innerHeight;
+    if (a >= 1) { simW = SIM_MAX; simH = Math.max(2, Math.round(SIM_MAX / a)); }
+    else        { simH = SIM_MAX; simW = Math.max(2, Math.round(SIM_MAX * a)); }
+  }
+
+  /* ---------- shaders ---------- */
+  const VERT = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  // Initialize: A = 1 everywhere, B = 1 inside random circular patches.
+  const INIT_FRAG = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform vec2  uSeeds[${NUM_SEEDS}];
+    uniform float uSeedR;
+    uniform float uAspect;
+    void main() {
+      float b = 0.0;
+      for (int i = 0; i < ${NUM_SEEDS}; i++) {
+        vec2 d = vUv - uSeeds[i];
+        d.x *= uAspect;
+        if (length(d) < uSeedR) b = 1.0;
+      }
+      gl_FragColor = vec4(1.0, b, 0.0, 1.0);
+    }
+  `;
+
+  // Mouse seed pass: add B in a soft brush, leave A untouched.
+  const SEED_FRAG = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uState;
+    uniform vec2  uMouse;
+    uniform float uBrush;
+    uniform float uAspect;
+    void main() {
+      vec4 s = texture2D(uState, vUv);
+      vec2 d = vUv - uMouse;
+      d.x *= uAspect;
+      float add = smoothstep(uBrush, 0.0, length(d));
+      gl_FragColor = vec4(s.x, clamp(s.y + add, 0.0, 1.0), 0.0, 1.0);
+    }
+  `;
+
+  // Gray-Scott update with a 9-point Laplacian (4-0.2, diag-0.05, center-1).
+  const SIM_FRAG = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uState;
+    uniform vec2  uTexel;
+    uniform float uFeed, uKill, uDA, uDB, uDt;
+    void main() {
+      vec2 t = uTexel;
+      vec2 c  = texture2D(uState, vUv).xy;
+      vec2 l  = texture2D(uState, vUv + vec2(-t.x, 0.0)).xy;
+      vec2 r  = texture2D(uState, vUv + vec2( t.x, 0.0)).xy;
+      vec2 u  = texture2D(uState, vUv + vec2(0.0,  t.y)).xy;
+      vec2 dn = texture2D(uState, vUv + vec2(0.0, -t.y)).xy;
+      vec2 ul = texture2D(uState, vUv + vec2(-t.x,  t.y)).xy;
+      vec2 ur = texture2D(uState, vUv + vec2( t.x,  t.y)).xy;
+      vec2 dl = texture2D(uState, vUv + vec2(-t.x, -t.y)).xy;
+      vec2 dr = texture2D(uState, vUv + vec2( t.x, -t.y)).xy;
+
+      vec2 lap = -1.0 * c
+               + 0.2  * (l + r + u + dn)
+               + 0.05 * (ul + ur + dl + dr);
+
+      float A = c.x, B = c.y;
+      float react = A * B * B;
+      float dA = uDA * lap.x - react + uFeed * (1.0 - A);
+      float dB = uDB * lap.y + react - (uKill + uFeed) * B;
+
+      A = clamp(A + dA * uDt, 0.0, 1.0);
+      B = clamp(B + dB * uDt, 0.0, 1.0);
+      gl_FragColor = vec4(A, B, 0.0, 1.0);
+    }
+  `;
+
+  // Display: map B through an IQ cosine palette, dark background, edge glow, slow hue drift.
+  const DISP_FRAG = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uState;
+    uniform vec2  uTexel;
+    uniform float uTime;
+    vec3 palette(float x) {
+      vec3 a = vec3(0.50, 0.45, 0.40);
+      vec3 b = vec3(0.50, 0.50, 0.55);
+      vec3 cc = vec3(1.00, 1.00, 1.00);
+      vec3 d = vec3(0.00, 0.15, 0.30);
+      return a + b * cos(6.28318 * (cc * x + d));
+    }
+    void main() {
+      float B = texture2D(uState, vUv).y;
+      float t = smoothstep(0.0, 0.40, B);
+      vec3 col = palette(t * 0.85 + uTime * 0.02);
+
+      // edge highlight from the local gradient of B for a sense of depth
+      float bx = texture2D(uState, vUv + vec2(uTexel.x,0.0)).y
+               - texture2D(uState, vUv - vec2(uTexel.x,0.0)).y;
+      float by = texture2D(uState, vUv + vec2(0.0,uTexel.y)).y
+               - texture2D(uState, vUv - vec2(0.0,uTexel.y)).y;
+      float edge = clamp(length(vec2(bx, by)) * 6.0, 0.0, 1.0);
+      col += edge * vec3(0.25, 0.30, 0.35);
+
+      col *= smoothstep(0.0, 0.06, B);   // empty medium fades to near-black
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  const initMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: INIT_FRAG,
+    uniforms: {
+      uSeeds:  { value: Array.from({ length: NUM_SEEDS }, () => new THREE.Vector2(-10, -10)) },
+      uSeedR:  { value: SEED_R },
+      uAspect: { value: 1.0 }
+    }
+  });
+  const seedMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: SEED_FRAG,
+    uniforms: {
+      uState:  { value: null },
+      uMouse:  { value: new THREE.Vector2(0.5, 0.5) },
+      uBrush:  { value: BRUSH },
+      uAspect: { value: 1.0 }
+    }
+  });
+  const simMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: SIM_FRAG,
+    uniforms: {
+      uState: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+      uFeed:  { value: FEED }, uKill: { value: KILL },
+      uDA:    { value: DA },   uDB:   { value: DB },
+      uDt:    { value: DT }
+    }
+  });
+  const dispMat = new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: DISP_FRAG,
+    uniforms: {
+      uState: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+      uTime:  { value: 0.0 }
+    }
+  });
+
+  function renderPass(mat, target) {
+    quad.material = mat;
+    renderer.setRenderTarget(target);
+    renderer.render(scene, camera);
+  }
+
+  function seedInitial() {
+    const seeds = initMat.uniforms.uSeeds.value;
+    for (let i = 0; i < NUM_SEEDS; i++) {
+      // ~16 active patches; the rest parked off-grid so the radius test never hits them
+      if (i < 16) seeds[i].set(Math.random(), Math.random());
+      else        seeds[i].set(-10, -10);
+    }
+    initMat.uniforms.uAspect.value = simW / simH;
+    renderPass(initMat, current);
+  }
+
+  function buildTargets() {
+    computeRes();
+    if (current) current.dispose();
+    if (next)    next.dispose();
+    current = makeRT(simW, simH);
+    next    = makeRT(simW, simH);
+    const texel = new THREE.Vector2(1 / simW, 1 / simH);
+    simMat.uniforms.uTexel.value.copy(texel);
+    dispMat.uniforms.uTexel.value.copy(texel);
+    seedMat.uniforms.uAspect.value = simW / simH;
+    seedInitial();
+  }
+
+  buildTargets();
+
+  /* ---------- interaction ---------- */
+  let pointerDown = false;
+  const mouseUv = new THREE.Vector2(0.5, 0.5);
+  let seedThisFrame = false;
+
+  function setMouse(e) {
+    const rect = canvas.getBoundingClientRect();
+    mouseUv.x = (e.clientX - rect.left) / rect.width;
+    mouseUv.y = 1.0 - (e.clientY - rect.top) / rect.height;
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    pointerDown = true; setMouse(e); seedThisFrame = true;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointerDown) return;
+    setMouse(e); seedThisFrame = true;
+  });
+  const release = () => { pointerDown = false; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('lostpointercapture', release);
+
+  /* ---------- resize ---------- */
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(buildTargets, 120); // rebuild grid + reseed after resize settles
+  });
+
+  /* ---------- loop ---------- */
+  const clock = new THREE.Clock();
+  function frame() {
+    requestAnimationFrame(frame);
+
+    // mouse seed (one ping-pong) before the sim steps
+    if (seedThisFrame) {
+      seedMat.uniforms.uState.value = current.texture;
+      seedMat.uniforms.uMouse.value.copy(mouseUv);
+      renderPass(seedMat, next);
+      const tmp = current; current = next; next = tmp;
+      seedThisFrame = false;
+    }
+
+    // simulation sub-steps
+    for (let i = 0; i < SIM_STEPS; i++) {
+      simMat.uniforms.uState.value = current.texture;
+      renderPass(simMat, next);
+      const tmp = current; current = next; next = tmp;
+    }
+
+    // display to screen
+    dispMat.uniforms.uState.value = current.texture;
+    dispMat.uniforms.uTime.value = clock.getElapsedTime();
+    quad.material = dispMat;
+    renderer.setRenderTarget(null);
+    renderer.render(scene, camera);
+  }
+  frame();
+}
+</script>
+</body>
+</html>

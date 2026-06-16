@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>RESONANT — audio-reactive visualizer</title>
+<style>
+  :root{
+    --bg:#05060b;
+    --ink:#e8ecf4;
+    --dim:#7b8499;
+    --accent:#5fd9ff;
+    --accent2:#ff5fa8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);overflow:hidden}
+  body{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  #canvas-wrap{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* HUD title, lives behind the overlay and stays after start */
+  #hud{
+    position:fixed;left:0;right:0;top:0;
+    padding:22px 26px;
+    display:flex;align-items:baseline;gap:14px;
+    pointer-events:none;z-index:5;
+    mix-blend-mode:screen;
+  }
+  #hud .title{
+    font-size:13px;letter-spacing:.46em;font-weight:600;
+    text-transform:uppercase;color:var(--ink);
+  }
+  #hud .sub{
+    font-size:11px;letter-spacing:.18em;color:var(--dim);
+    text-transform:uppercase;
+  }
+  #hint{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:18px 26px;text-align:center;
+    font-size:11px;letter-spacing:.2em;color:var(--dim);
+    text-transform:uppercase;pointer-events:none;z-index:5;
+    mix-blend-mode:screen;
+  }
+
+  /* Start overlay */
+  #overlay{
+    position:fixed;inset:0;z-index:20;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:30px;
+    background:
+      radial-gradient(60% 60% at 50% 45%, rgba(95,217,255,.10), transparent 70%),
+      rgba(5,6,11,.78);
+    backdrop-filter:blur(2px);
+    transition:opacity .7s ease;
+  }
+  #overlay.hidden{opacity:0;pointer-events:none}
+  .mark{
+    font-size:clamp(34px,8vw,84px);
+    letter-spacing:.22em;font-weight:700;
+    text-transform:uppercase;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-indent:.22em; /* counter the trailing letter-spacing */
+  }
+  .tagline{
+    font-size:12px;letter-spacing:.32em;color:var(--dim);
+    text-transform:uppercase;margin-top:-14px;
+  }
+  #start{
+    margin-top:6px;
+    font:inherit;font-size:15px;letter-spacing:.28em;font-weight:600;
+    text-transform:uppercase;color:var(--bg);
+    background:var(--ink);
+    border:none;border-radius:0;
+    padding:16px 38px 16px 44px;
+    cursor:pointer;
+    transition:transform .15s ease, box-shadow .25s ease, background .25s ease;
+    box-shadow:0 0 0 1px rgba(255,255,255,.15), 0 14px 50px rgba(95,217,255,.25);
+  }
+  #start:hover{transform:translateY(-2px);background:var(--accent);box-shadow:0 0 0 1px rgba(255,255,255,.25),0 18px 60px rgba(95,217,255,.4)}
+  #start:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+  #start:active{transform:translateY(0)}
+  .note{
+    position:absolute;bottom:26px;left:0;right:0;text-align:center;
+    font-size:10px;letter-spacing:.16em;color:#4a5266;text-transform:uppercase;
+    padding:0 20px;line-height:1.7;
+  }
+
+  /* WebGL failure / fatal message */
+  #fatal{
+    position:fixed;inset:0;z-index:50;display:none;
+    align-items:center;justify-content:center;padding:30px;
+    background:var(--bg);text-align:center;
+  }
+  #fatal p{max-width:520px;font-size:14px;line-height:1.9;letter-spacing:.08em;color:var(--ink)}
+  #fatal b{color:var(--accent2)}
+
+  @media (prefers-reduced-motion: reduce){
+    #start{transition:none}
+  }
+</style>
+</head>
+<body>
+  <div id="canvas-wrap"></div>
+
+  <div id="hud">
+    <span class="title">Resonant</span>
+    <span class="sub">FFT · generative</span>
+  </div>
+  <div id="hint">spectrum-driven geometry · all audio synthesized in-browser</div>
+
+  <div id="overlay">
+    <div class="mark">Resonant</div>
+    <div class="tagline">a self-playing sound sculpture</div>
+    <button id="start" type="button">▶ Start</button>
+    <div class="note">
+      No mic, no files. Audio is generated live with the Web Audio API.<br>
+      Mic input could be wired in later when hosted over https; this build runs from a double-clicked file.
+    </div>
+  </div>
+
+  <div id="fatal"><p></p></div>
+
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    var fatalEl = document.getElementById("fatal");
+    function fatal(html) {
+      fatalEl.querySelector("p").innerHTML = html;
+      fatalEl.style.display = "flex";
+    }
+
+    // ---- WebGL availability check ----------------------------------------
+    if (typeof THREE === "undefined") {
+      fatal("Couldn't load <b>three.js</b>. This file needs an internet connection " +
+            "the first time so the library can download from unpkg.com.");
+      return;
+    }
+    (function () {
+      try {
+        var c = document.createElement("canvas");
+        var gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+        if (!gl) throw new Error("no webgl");
+      } catch (e) {
+        fatal("<b>WebGL isn't available</b> in this browser. " +
+              "Try a recent version of Chrome, Edge or Firefox with hardware acceleration enabled.");
+        return;
+      }
+    })();
+    if (fatalEl.style.display === "flex") return;
+
+    // ======================================================================
+    //  THREE.js scene
+    // ======================================================================
+    var wrap = document.getElementById("canvas-wrap");
+
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch (e) {
+      fatal("<b>Couldn't create a WebGL context.</b> Your GPU or driver may be blocking it.");
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    wrap.appendChild(renderer.domElement);
+
+    var scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x05060b);
+    scene.fog = new THREE.FogExp2(0x05060b, 0.045);
+
+    var camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 1.6, 11);
+    camera.lookAt(0, 0, 0);
+
+    // ---- lights ----------------------------------------------------------
+    scene.add(new THREE.AmbientLight(0x223044, 0.6));
+
+    var keyLight = new THREE.PointLight(0x5fd9ff, 1.5, 60, 2);
+    keyLight.position.set(8, 7, 9);
+    scene.add(keyLight);
+
+    var rimLight = new THREE.PointLight(0xff5fa8, 1.3, 60, 2);
+    rimLight.position.set(-9, -4, 4);
+    scene.add(rimLight);
+
+    var topLight = new THREE.DirectionalLight(0x9fb4ff, 0.5);
+    topLight.position.set(0, 12, -6);
+    scene.add(topLight);
+
+    // ---- central deforming form -----------------------------------------
+    var BASE_RADIUS = 2.4;
+    var blobGeo = new THREE.IcosahedronGeometry(BASE_RADIUS, 4); // ~2562 verts
+    var posAttr = blobGeo.attributes.position;
+    var vCount = posAttr.count;
+
+    // cache the original unit direction of every vertex (centered at origin)
+    var dirs = new Float32Array(vCount * 3);
+    (function () {
+      var v = new THREE.Vector3();
+      for (var i = 0; i < vCount; i++) {
+        v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)).normalize();
+        dirs[i * 3] = v.x; dirs[i * 3 + 1] = v.y; dirs[i * 3 + 2] = v.z;
+      }
+    })();
+
+    var blobMat = new THREE.MeshStandardMaterial({
+      color: 0x0d2230,
+      emissive: 0x2bd6ff,
+      emissiveIntensity: 0.45,
+      metalness: 0.55,
+      roughness: 0.22,
+      flatShading: false
+    });
+    var blob = new THREE.Mesh(blobGeo, blobMat);
+    scene.add(blob);
+
+    // additive "glow" shell — a slightly larger, transparent, wireframe-ish twin
+    var glowGeo = new THREE.IcosahedronGeometry(BASE_RADIUS, 2);
+    var glowMat = new THREE.MeshBasicMaterial({
+      color: 0x5fd9ff,
+      transparent: true,
+      opacity: 0.10,
+      blending: THREE.AdditiveBlending,
+      wireframe: true,
+      depthWrite: false
+    });
+    var glow = new THREE.Mesh(glowGeo, glowMat);
+    blob.add(glow); // follows the blob's rotation
+
+    // ---- ring of bars ----------------------------------------------------
+    var BAR_COUNT = 72;
+    var RING_RADIUS = 5.4;
+    var bars = [];
+    var barGroup = new THREE.Group();
+    scene.add(barGroup);
+
+    var barBaseGeo = new THREE.BoxGeometry(0.34, 1, 0.34);
+    barBaseGeo.translate(0, 0.5, 0); // base sits at y=0 so scaling grows upward
+
+    for (var b = 0; b < BAR_COUNT; b++) {
+      var ang = (b / BAR_COUNT) * Math.PI * 2;
+      var mat = new THREE.MeshStandardMaterial({
+        color: 0x101826,
+        emissive: new THREE.Color().setHSL(0.55, 0.9, 0.5),
+        emissiveIntensity: 0.6,
+        metalness: 0.4,
+        roughness: 0.35
+      });
+      var bar = new THREE.Mesh(barBaseGeo, mat);
+      bar.position.set(Math.cos(ang) * RING_RADIUS, -1.6, Math.sin(ang) * RING_RADIUS);
+      bar.rotation.y = -ang;
+      barGroup.add(bar);
+      bars.push(bar);
+    }
+
+    // ---- ambient particles (additive glow dust) --------------------------
+    var P_COUNT = 700;
+    var pPos = new Float32Array(P_COUNT * 3);
+    for (var p = 0; p < P_COUNT; p++) {
+      var r = 7 + Math.random() * 14;
+      var theta = Math.random() * Math.PI * 2;
+      var phi = Math.acos(2 * Math.random() - 1);
+      pPos[p * 3]     = r * Math.sin(phi) * Math.cos(theta);
+      pPos[p * 3 + 1] = (Math.random() - 0.5) * 16;
+      pPos[p * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    var pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+    var pMat = new THREE.PointsMaterial({
+      color: 0x6fe0ff,
+      size: 0.06,
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    var particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    // ======================================================================
+    //  Web Audio — generative score + analyser
+    // ======================================================================
+    var audioCtx = null, analyser = null, freqData = null;
+    var masterGain = null, filter = null;
+    var schedulerTimer = null;
+    var started = false;
+
+    // analysis values (smoothed)
+    var bass = 0, mid = 0, treble = 0, level = 0;
+    var pulse = 0;          // beat-driven impulse
+    var bassAvg = 0.0001;   // running average for beat detection
+
+    // --- musical material: A minor pentatonic across a couple octaves -----
+    function semis(root, n) { return root * Math.pow(2, n / 12); }
+    var ROOT = 220; // A3
+    var PENTA = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24]; // minor pentatonic steps
+    var scale = PENTA.map(function (s) { return semis(ROOT, s); });
+    var bassNotes = [semis(55, 0), semis(55, 3), semis(55, 7), semis(55, 5)]; // A1,C2,E2,D2
+    var chordSets = [
+      [0, 3, 7],   // Am
+      [3, 7, 10],  // C
+      [5, 10, 12], // Dm-ish
+      [7, 10, 14]  // Em-ish
+    ];
+
+    // scheduler state
+    var tempo = 96;
+    var secPerBeat = 60 / tempo;
+    var sixteenth = secPerBeat / 4;
+    var nextNoteTime = 0;
+    var step16 = 0;       // 0..15 within a bar
+    var barCount = 0;
+    var lookahead = 0.1;  // seconds scheduled ahead
+    var arpWalk = 0;
+
+    function buildAudioGraph() {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx();
+
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.0;
+
+      // gentle limiter so envelopes never clip
+      var comp = audioCtx.createDynamicsCompressor();
+      comp.threshold.value = -16;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.18;
+
+      filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 1300;
+      filter.Q.value = 0.9;
+
+      // slow LFO sweeping the filter cutoff
+      var lfo = audioCtx.createOscillator();
+      var lfoGain = audioCtx.createGain();
+      lfo.frequency.value = 0.08;
+      lfoGain.gain.value = 750;
+      lfo.connect(lfoGain).connect(filter.frequency);
+      lfo.start();
+
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.8;
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      // chain: voices -> filter -> master -> comp -> [analyser + destination]
+      filter.connect(masterGain);
+      masterGain.connect(comp);
+      comp.connect(analyser);
+      comp.connect(audioCtx.destination);
+
+      // fade master in
+      var t = audioCtx.currentTime;
+      masterGain.gain.setValueAtTime(0.0, t);
+      masterGain.gain.linearRampToValueAtTime(0.9, t + 1.5);
+    }
+
+    // one plucked/padded voice
+    function playNote(freq, time, dur, type, peak, detune) {
+      var osc = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, time);
+      if (detune) osc.detune.setValueAtTime(detune, time);
+
+      var attack = Math.min(0.02, dur * 0.2);
+      var rel = dur;
+      g.gain.setValueAtTime(0.0001, time);
+      g.gain.exponentialRampToValueAtTime(peak, time + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, time + rel);
+
+      osc.connect(g).connect(filter);
+      osc.start(time);
+      osc.stop(time + rel + 0.05);
+      // let GC handle disconnection after stop
+    }
+
+    function playPad(time, chordIdx) {
+      var set = chordSets[chordIdx % chordSets.length];
+      for (var i = 0; i < set.length; i++) {
+        var f = semis(ROOT / 2, set[i]); // an octave down
+        playNote(f, time, secPerBeat * 4.2, "sawtooth", 0.05, -6);
+        playNote(f, time, secPerBeat * 4.2, "triangle", 0.05, 6);
+      }
+    }
+
+    function scheduleStep(time) {
+      // bar = 16 sixteenths
+      var beatInBar = Math.floor(step16 / 4);
+
+      // --- bass on beats 1 and 3 ---
+      if (step16 % 8 === 0) {
+        var bn = bassNotes[(barCount) % bassNotes.length];
+        playNote(bn, time, secPerBeat * 1.6, "sine", 0.34, 0);
+        playNote(bn * 2, time, secPerBeat * 0.9, "triangle", 0.10, 0);
+      }
+
+      // --- pad refresh every bar ---
+      if (step16 === 0) {
+        playPad(time, barCount);
+      }
+
+      // --- arpeggio: not every step, leaves space ---
+      var arpPattern = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1];
+      if (arpPattern[step16]) {
+        arpWalk += (Math.random() < 0.55 ? 1 : -1);
+        if (arpWalk < 0) arpWalk = 1;
+        if (arpWalk > scale.length - 1) arpWalk = scale.length - 2;
+        var f = scale[arpWalk];
+        playNote(f, time, sixteenth * 3.0, "square", 0.085, 0);
+        // soft octave shimmer on the off-accents
+        if (step16 % 4 === 2) playNote(f * 2, time, sixteenth * 2.2, "triangle", 0.05, 4);
+      }
+
+      // advance
+      step16++;
+      if (step16 >= 16) { step16 = 0; barCount++; }
+    }
+
+    function scheduler() {
+      while (nextNoteTime < audioCtx.currentTime + lookahead) {
+        scheduleStep(nextNoteTime);
+        nextNoteTime += sixteenth;
+      }
+    }
+
+    function startAudio() {
+      buildAudioGraph();
+      nextNoteTime = audioCtx.currentTime + 0.08;
+      step16 = 0; barCount = 0;
+      schedulerTimer = setInterval(scheduler, 25);
+    }
+
+    // ======================================================================
+    //  Analysis helpers
+    // ======================================================================
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function readSpectrum() {
+      if (!analyser) return;
+      analyser.getByteFrequencyData(freqData);
+      var n = freqData.length; // 512 bins
+
+      // band ranges (bin indices) over a 1024 fftSize @ ~44.1k => ~43 Hz/bin
+      var bAvg = avg(freqData, 1, 8);     // ~40–350 Hz
+      var mAvg = avg(freqData, 8, 60);    // ~350–2.6k Hz
+      var tAvg = avg(freqData, 60, 220);  // ~2.6k–9.5k Hz
+      var lAvg = avg(freqData, 1, 220);
+
+      bass   = lerp(bass,   bAvg / 255, 0.18);
+      mid    = lerp(mid,    mAvg / 255, 0.20);
+      treble = lerp(treble, tAvg / 255, 0.25);
+      level  = lerp(level,  lAvg / 255, 0.15);
+
+      // simple beat impulse: bass spike above its running average
+      bassAvg = lerp(bassAvg, bass, 0.05);
+      if (bass > bassAvg * 1.32 && bass > 0.18) {
+        pulse = Math.max(pulse, (bass - bassAvg) * 3.0);
+      }
+      pulse *= 0.90; // decay
+    }
+    function avg(arr, lo, hi) {
+      var s = 0, c = 0;
+      for (var i = lo; i < hi && i < arr.length; i++) { s += arr[i]; c++; }
+      return c ? s / c : 0;
+    }
+
+    // map an fft band index to each bar for the ring
+    function barValue(i) {
+      // spread bars across the lower 2/3 of the spectrum, mirrored for symmetry
+      var half = BAR_COUNT / 2;
+      var k = i < half ? i : (BAR_COUNT - 1 - i);
+      var idx = 2 + Math.floor((k / half) * 150);
+      return freqData ? freqData[idx] / 255 : 0;
+    }
+
+    // ======================================================================
+    //  Render loop
+    // ======================================================================
+    var clock = new THREE.Clock();
+    var tmp = new THREE.Vector3();
+    var hueShift = 0;
+    var barSmooth = new Float32Array(BAR_COUNT);
+
+    function deformBlob(t) {
+      var pulseBoost = pulse * 0.9;
+      var bassDisp = bass * 1.6 + pulseBoost;
+      var midDisp = mid * 0.5;
+      for (var i = 0; i < vCount; i++) {
+        var dx = dirs[i * 3], dy = dirs[i * 3 + 1], dz = dirs[i * 3 + 2];
+        // organic morph from layered trig on the unit direction
+        var n =
+          0.55 * Math.sin(dx * 2.0 + t * 0.9) +
+          0.45 * Math.cos(dy * 2.4 + t * 1.15) +
+          0.50 * Math.sin(dz * 1.8 + t * 0.75);
+        var spikes = Math.sin(dx * 6.0 + dy * 6.0 + dz * 6.0 + t * 2.0);
+        var rad = BASE_RADIUS
+          + n * (0.28 + midDisp)
+          + spikes * (0.12 + treble * 0.55)
+          + bassDisp;
+        posAttr.setXYZ(i, dx * rad, dy * rad, dz * rad);
+      }
+      posAttr.needsUpdate = true;
+      blobGeo.computeVertexNormals();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      var dt = clock.getDelta();
+      var t = clock.elapsedTime;
+
+      readSpectrum();
+
+      // idle breathing when audio hasn't started so it isn't dead-still
+      if (!started) {
+        bass = 0.10 + 0.05 * Math.sin(t * 0.8);
+        mid = 0.06; treble = 0.04;
+      }
+
+      // central form
+      deformBlob(t);
+      blob.rotation.y += dt * (0.12 + mid * 0.6);
+      blob.rotation.x += dt * 0.05;
+      var s = 1 + pulse * 0.18 + bass * 0.12;
+      blob.scale.setScalar(s);
+      blobMat.emissiveIntensity = 0.4 + treble * 1.6 + pulse * 1.2;
+      hueShift = (hueShift + dt * 0.03 + pulse * 0.02) % 1;
+      blobMat.emissive.setHSL((0.52 + 0.12 * Math.sin(t * 0.2)) % 1, 0.85, 0.5 + treble * 0.2);
+      glowMat.opacity = 0.07 + bass * 0.25 + pulse * 0.3;
+      glow.scale.setScalar(1.04 + pulse * 0.12 + bass * 0.08);
+
+      // ring of bars
+      barGroup.rotation.y -= dt * 0.06;
+      for (var i = 0; i < BAR_COUNT; i++) {
+        var raw = barValue(i);
+        barSmooth[i] = lerp(barSmooth[i], raw, 0.3);
+        var h = 0.25 + barSmooth[i] * 6.5 + pulse * 1.2;
+        bars[i].scale.y = h;
+        var hue = (hueShift + 0.5 + (i / BAR_COUNT) * 0.25 + barSmooth[i] * 0.15) % 1;
+        bars[i].material.emissive.setHSL(hue, 0.9, 0.35 + barSmooth[i] * 0.4);
+        bars[i].material.emissiveIntensity = 0.4 + barSmooth[i] * 2.2;
+      }
+
+      // particles drift + brighten with treble
+      particles.rotation.y += dt * 0.02;
+      particles.rotation.x += dt * 0.005;
+      pMat.opacity = 0.25 + treble * 0.6 + pulse * 0.3;
+      pMat.size = 0.05 + treble * 0.08;
+
+      // lights react
+      keyLight.intensity = 1.2 + mid * 2.0 + pulse * 1.5;
+      rimLight.intensity = 1.0 + treble * 2.2;
+      keyLight.color.setHSL((0.55 + treble * 0.1) % 1, 0.9, 0.6);
+      rimLight.color.setHSL((0.9 + bass * 0.08) % 1, 0.9, 0.6);
+
+      // subtle camera life + bass push-in
+      var camR = 11 - bass * 0.9 - pulse * 0.6;
+      camera.position.x = Math.sin(t * 0.12) * 1.6;
+      camera.position.z = camR;
+      camera.position.y = 1.6 + Math.sin(t * 0.18) * 0.5;
+      camera.lookAt(0, 0, 0);
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ======================================================================
+    //  Resize
+    // ======================================================================
+    window.addEventListener("resize", function () {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    // ======================================================================
+    //  Start gesture
+    // ======================================================================
+    var overlay = document.getElementById("overlay");
+    var startBtn = document.getElementById("start");
+
+    function begin() {
+      if (started) return;
+      started = true;
+      try {
+        startAudio();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+      } catch (e) {
+        // audio failed but visuals still run; surface a quiet console note
+        console.error("Audio init failed:", e);
+        started = false;
+      }
+      overlay.classList.add("hidden");
+    }
+
+    startBtn.addEventListener("click", begin);
+  })();
+  </script>
+</body>
+</html>

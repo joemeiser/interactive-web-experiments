@@ -1,0 +1,20 @@
+# --- Intentional: do NOT publish any markdown (including CLAUDE.md) ---
+*.md
+
+# --- Local-only tooling (not part of the published site) ---
+build_gallery.py
+make_thumbnails.py
+
+# --- Python / PyCharm cruft (keep out of the published repo) ---
+.idea/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini

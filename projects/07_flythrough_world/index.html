@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Endless Drift</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1024; }
+  #c { display: block; width: 100vw; height: 100vh; }
+  #overlay {
+    position: fixed; left: 18px; bottom: 16px;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    color: rgba(255,255,255,0.82); pointer-events: none; user-select: none;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+  }
+  #overlay .title { font-size: 22px; font-weight: 600; letter-spacing: 0.04em; }
+  #overlay .hint  { font-size: 13px; opacity: 0.7; margin-top: 4px; }
+  #fallback {
+    display: none; position: fixed; inset: 0; align-items: center; justify-content: center;
+    font-family: system-ui, sans-serif; color: #f0e8ff; background: #1a1024;
+    text-align: center; padding: 24px; font-size: 18px; line-height: 1.5;
+  }
+  #audioBtn {
+    position: fixed; right: 18px; bottom: 16px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    font-size: 13px; letter-spacing: 0.02em; color: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.28);
+    padding: 8px 15px; border-radius: 999px; cursor: pointer;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); user-select: none;
+  }
+  #audioBtn:hover { background: rgba(255,255,255,0.18); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <div class="title">Endless Drift</div>
+  <div class="hint">An infinite procedural flythrough · move the mouse to steer (left/right turns, up/down climbs &amp; dives)</div>
+</div>
+<button id="audioBtn">&#9834; sound on</button>
+<div id="fallback">WebGL is not available in this browser, so the flythrough can&rsquo;t run.<br>Try a recent version of Chrome, Edge, or Firefox.</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---- WebGL availability check (visible message instead of blank page) ----
+  function webglOK() {
+    try {
+      var c = document.createElement("canvas");
+      return !!(window.WebGLRenderingContext &&
+        (c.getContext("webgl") || c.getContext("experimental-webgl")));
+    } catch (e) { return false; }
+  }
+  if (typeof THREE === "undefined" || !webglOK()) {
+    document.getElementById("fallback").style.display = "flex";
+    return;
+  }
+
+  // ---- Shared GLSL: value-noise + fbm (no libraries) ----
+  var NOISE_GLSL = [
+    "float hash(vec2 p){",
+    "  p = fract(p * vec2(123.34, 456.21));",
+    "  p += dot(p, p + 45.32);",
+    "  return fract(p.x * p.y);",
+    "}",
+    "float valueNoise(vec2 p){",
+    "  vec2 i = floor(p);",
+    "  vec2 f = fract(p);",
+    "  float a = hash(i);",
+    "  float b = hash(i + vec2(1.0, 0.0));",
+    "  float c = hash(i + vec2(0.0, 1.0));",
+    "  float d = hash(i + vec2(1.0, 1.0));",
+    "  vec2 u = f * f * (3.0 - 2.0 * f);",
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+    "}",
+    "float fbm(vec2 p){",
+    "  float v = 0.0; float amp = 0.5; float freq = 1.0;",
+    "  for (int i = 0; i < 4; i++) {",
+    "    v += amp * valueNoise(p * freq);",
+    "    freq *= 2.0; amp *= 0.5;",
+    "  }",
+    "  return v;",
+    "}",
+    // terrain height field; uTime gives a very slow domain drift (evolving dunes)
+    "float terrainHeight(vec2 wp){",
+    "  vec2 p = wp * 0.011;",
+    "  vec2 drift = vec2(uTime * 0.010, uTime * 0.013);",
+    "  vec2 q = vec2(fbm(p + drift + vec2(1.7, 9.2)),",
+    "               fbm(p + drift + vec2(8.3, 2.8)));",
+    "  float h = fbm(p + 1.6 * q);",
+    "  h = pow(clamp(h, 0.0, 1.0), 1.35);",
+    "  return h * uHeightScale;",
+    "}"
+  ].join("\n");
+
+  // ---- Terrain shaders ----
+  var TERRAIN_VERT = [
+    "uniform vec2 uOffset;",
+    "uniform float uTime;",
+    "uniform float uHeightScale;",
+    "varying float vHeight;",
+    "varying float vViewDist;",
+    "varying vec3 vNormal;",
+    NOISE_GLSL,
+    "void main(){",
+    "  vec2 base = vec2(position.x, position.z) + uOffset;",
+    "  float e = 3.2;",
+    "  float h  = terrainHeight(base);",
+    "  float hL = terrainHeight(base + vec2(-e, 0.0));",
+    "  float hR = terrainHeight(base + vec2( e, 0.0));",
+    "  float hD = terrainHeight(base + vec2(0.0, -e));",
+    "  float hU = terrainHeight(base + vec2(0.0,  e));",
+    "  vec3 n = normalize(vec3(hL - hR, 2.0 * e, hD - hU));",
+    "  vec3 displaced = vec3(position.x, h, position.z);",
+    "  vec4 mv = modelViewMatrix * vec4(displaced, 1.0);",
+    "  vViewDist = -mv.z;",
+    "  vHeight = h;",
+    "  vNormal = n;",
+    "  gl_Position = projectionMatrix * mv;",
+    "}"
+  ].join("\n");
+
+  var TERRAIN_FRAG = [
+    "uniform vec3 uFogColor;",
+    "uniform float uFogNear;",
+    "uniform float uFogFar;",
+    "uniform vec3 uLightDir;",
+    "uniform float uHeightScale;",
+    "varying float vHeight;",
+    "varying float vViewDist;",
+    "varying vec3 vNormal;",
+    "vec3 terrainColor(float t){",
+    "  vec3 cValley = vec3(0.10, 0.05, 0.26);",
+    "  vec3 cLow    = vec3(0.42, 0.10, 0.44);",
+    "  vec3 cMid    = vec3(0.86, 0.30, 0.46);",
+    "  vec3 cHigh   = vec3(0.98, 0.74, 0.58);",
+    "  vec3 cPeak   = vec3(1.00, 0.97, 0.93);",
+    "  if (t < 0.25) return mix(cValley, cLow,  t / 0.25);",
+    "  if (t < 0.50) return mix(cLow,    cMid, (t - 0.25) / 0.25);",
+    "  if (t < 0.75) return mix(cMid,    cHigh,(t - 0.50) / 0.25);",
+    "  return mix(cHigh, cPeak, (t - 0.75) / 0.25);",
+    "}",
+    "void main(){",
+    "  float t = clamp(vHeight / uHeightScale, 0.0, 1.0);",
+    "  vec3 col = terrainColor(t);",
+    "  float diff = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);",
+    "  col *= (0.30 + 0.70 * diff);",
+    "  float fog = smoothstep(uFogNear, uFogFar, vViewDist);",
+    "  col = mix(col, uFogColor, fog);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  // ---- Sky dome shaders ----
+  var SKY_VERT = [
+    "varying vec3 vDir;",
+    "void main(){",
+    "  vDir = position;",
+    "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+    "}"
+  ].join("\n");
+  var SKY_FRAG = [
+    "uniform vec3 uTop;",
+    "uniform vec3 uHorizon;",
+    "varying vec3 vDir;",
+    "void main(){",
+    "  float t = smoothstep(-0.08, 0.55, normalize(vDir).y);",
+    "  gl_FragColor = vec4(mix(uHorizon, uTop, t), 1.0);",
+    "}"
+  ].join("\n");
+
+  // ---- Renderer ----
+  var canvas = document.getElementById("c");
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.autoClear = true;
+
+  var scene = new THREE.Scene();
+
+  // World dimensions
+  var W = 700, D = 1000, SEGX = 200, SEGZ = 300;
+
+  var camera = new THREE.PerspectiveCamera(
+    62, window.innerWidth / window.innerHeight, 0.1, 1600);
+  var baseY = 55, baseLookY = 38;  // cruising altitude; mouse-down can drop below the valley floor
+  camera.position.set(0, baseY, 0);
+
+  // ---- Color palette (drifts slowly over time) ----
+  var horizonBase = new THREE.Color(0.93, 0.66, 0.62); // peachy dusk
+  var skyTop      = new THREE.Color(0.16, 0.09, 0.30); // deep violet
+  renderer.setClearColor(horizonBase, 1);
+
+  // ---- Sky dome ----
+  var skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTop: { value: skyTop.clone() },
+      uHorizon: { value: horizonBase.clone() }
+    },
+    vertexShader: SKY_VERT,
+    fragmentShader: SKY_FRAG,
+    side: THREE.BackSide,
+    depthWrite: false
+  });
+  var sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 16), skyMat);
+  sky.renderOrder = -1;
+  scene.add(sky);
+
+  // ---- Terrain grid (fixed grid; the treadmill scrolls the noise sample) ----
+  var positions = [], indices = [];
+  for (var iz = 0; iz <= SEGZ; iz++) {
+    var z = 60 - (iz / SEGZ) * (D + 60); // +60 (behind cam) .. -1000 (far)
+    for (var ix = 0; ix <= SEGX; ix++) {
+      var x = -W / 2 + (ix / SEGX) * W;
+      positions.push(x, 0, z);
+    }
+  }
+  var cols = SEGX + 1;
+  for (var jz = 0; jz < SEGZ; jz++) {
+    for (var jx = 0; jx < SEGX; jx++) {
+      var a = jz * cols + jx, b = a + 1, c = a + cols, d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+
+  var uniforms = {
+    uOffset: { value: new THREE.Vector2(0, 0) },
+    uTime: { value: 0 },
+    uHeightScale: { value: 58 },
+    uFogColor: { value: horizonBase.clone() },
+    uFogNear: { value: 150 },
+    uFogFar: { value: 740 },
+    uLightDir: { value: new THREE.Vector3(0.5, 0.8, -0.2).normalize() }
+  };
+
+  var terrainMat = new THREE.ShaderMaterial({
+    uniforms: uniforms,
+    vertexShader: TERRAIN_VERT,
+    fragmentShader: TERRAIN_FRAG,
+    side: THREE.DoubleSide
+  });
+  var terrain = new THREE.Mesh(geo, terrainMat);
+  terrain.frustumCulled = false; // shader displaces Y; keep it always drawn
+  scene.add(terrain);
+
+  // ---- Steering (mouse nudges heading + pitch slightly) ----
+  var targetSteerX = 0, steerX = 0;
+  var targetSteerY = 0, steerY = 0;
+  window.addEventListener("mousemove", function (e) {
+    targetSteerX = (e.clientX / window.innerWidth - 0.5) * 2;
+    targetSteerY = (e.clientY / window.innerHeight - 0.5) * 2; // top = -1, bottom = +1
+  });
+
+  // ---- Resize ----
+  window.addEventListener("resize", function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  });
+
+  // ---- Animation loop ----
+  var offset = new THREE.Vector2(Math.random() * 1000, Math.random() * 1000);
+  var speed = 32;        // forward units / second
+  var time = 0, last = 0;
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+    var dt = last ? Math.min((now - last) / 1000, 0.05) : 0.016;
+    last = now;
+    time += dt;
+
+    steerX += (targetSteerX - steerX) * 0.045;
+    steerY += (targetSteerY - steerY) * 0.045;
+
+    // Treadmill: scroll the noise sample so terrain streams toward the camera
+    offset.y -= speed * dt;
+    offset.x += steerX * 10 * dt;
+    uniforms.uOffset.value.set(offset.x, offset.y);
+    uniforms.uTime.value = time;
+
+    // Slowly drifting "day" light direction
+    var a = time * 0.05;
+    uniforms.uLightDir.value.set(Math.cos(a) * 0.55, 0.78, Math.sin(a) * 0.45 - 0.25).normalize();
+
+    // Gentle day-tinted color drift on sky + matching fog (seam stays hidden)
+    var hueShift = Math.sin(time * 0.04) * 0.04;
+    var hsl = { h: 0, s: 0, l: 0 };
+    horizonBase.getHSL(hsl);
+    var driftedHorizon = new THREE.Color().setHSL(
+      (hsl.h + hueShift + 1) % 1, hsl.s, hsl.l);
+    skyMat.uniforms.uHorizon.value.copy(driftedHorizon);
+    uniforms.uFogColor.value.copy(driftedHorizon);
+    renderer.setClearColor(driftedHorizon, 1);
+
+    // Camera bob + lateral sway + mouse-led heading & pitch
+    // mouse up (steerY < 0) climbs; mouse down (steerY > 0) drops into valleys and through peaks
+    camera.position.y = baseY + Math.sin(time * 0.6) * 1.3 - steerY * 62;
+    camera.position.x = Math.sin(time * 0.23) * 2.0 + steerX * 6;
+    camera.lookAt(
+      camera.position.x + steerX * 45,
+      baseLookY + Math.sin(time * 0.5) * 1.0 - steerY * 62,
+      camera.position.z - 100);
+
+    sky.position.copy(camera.position);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+  var btn = document.getElementById("audioBtn");
+  var ctx, master, started = false, muted = false;
+  var VOL = 0.42;
+
+  function makeImpulse(ctx, seconds, decay) {
+    var rate = ctx.sampleRate, len = Math.floor(rate * seconds);
+    var buf = ctx.createBuffer(2, len, rate);
+    for (var ch = 0; ch < 2; ch++) {
+      var d = buf.getChannelData(ch);
+      for (var i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+      }
+    }
+    return buf;
+  }
+
+  function start() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    if (ctx.resume) ctx.resume();
+    master = ctx.createGain();
+    master.gain.value = VOL;
+    var comp = ctx.createDynamicsCompressor();
+    master.connect(comp);
+    comp.connect(ctx.destination);
+
+    var conv = ctx.createConvolver();
+    conv.buffer = makeImpulse(ctx, 5.0, 2.2);
+    var wet = ctx.createGain(); wet.gain.value = 0.45;
+    conv.connect(wet); wet.connect(master);
+
+    var lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 1200; lp.Q.value = 1.0;
+    lp.connect(master); lp.connect(conv);
+
+    var fLfo = ctx.createOscillator(); fLfo.frequency.value = 0.05;
+    var fLg = ctx.createGain(); fLg.gain.value = 480;
+    fLfo.connect(fLg); fLg.connect(lp.frequency); fLfo.start();
+
+    // gentle tremolo on the whole pad
+    var trem = ctx.createOscillator(); trem.frequency.value = 0.12;
+    var tg = ctx.createGain(); tg.gain.value = 0.05;
+    trem.connect(tg); tg.connect(master.gain); trem.start();
+
+    // three persistent voices (two detuned saws each) that glide between chords
+    var N = 3, voices = [];
+    for (var v = 0; v < N; v++) {
+      var pair = [];
+      for (var k = 0; k < 2; k++) {
+        var o = ctx.createOscillator(); o.type = "sawtooth";
+        o.detune.value = (k ? 7 : -7);
+        var g = ctx.createGain(); g.gain.value = 0.05;
+        o.connect(g); g.connect(lp); o.start();
+        pair.push(o);
+      }
+      voices.push(pair);
+    }
+    var sub = ctx.createOscillator(); sub.type = "sine";
+    var subG = ctx.createGain(); subG.gain.value = 0.12;
+    sub.connect(subG); subG.connect(master); sub.start();
+
+    // i - VI - III - VII (A minor flavour)
+    var chords = [
+      [220.00, 261.63, 329.63],
+      [174.61, 220.00, 261.63],
+      [261.63, 329.63, 392.00],
+      [196.00, 246.94, 392.00]
+    ];
+    var idx = 0;
+    function setChord(c) {
+      var t = ctx.currentTime;
+      for (var v = 0; v < N; v++)
+        for (var k = 0; k < 2; k++)
+          voices[v][k].frequency.setTargetAtTime(c[v], t, 1.4);
+      sub.frequency.setTargetAtTime(c[0] / 2, t, 1.4);
+    }
+    setChord(chords[0]);
+    setInterval(function () { idx = (idx + 1) % chords.length; setChord(chords[idx]); }, 9000);
+
+  }
+  btn.addEventListener("click", function () {
+    if (!started) return;
+    muted = !muted;
+    master.gain.setTargetAtTime(muted ? 0.0 : VOL, ctx.currentTime, 0.4);
+    btn.innerHTML = muted ? "&#9834; sound off" : "&#9834; sound on";
+  });
+
+  // On by default: start immediately, and if the browser holds the audio
+  // context suspended (autoplay policy), resume it on the first interaction.
+  function boot() {
+    if (started) return;
+    start();
+    started = true;
+    btn.innerHTML = "&#9834; sound on";
+    if (ctx.state === "suspended") {
+      var unlock = function () {
+        if (ctx.resume) ctx.resume();
+        if (ctx.state === "running") {
+          window.removeEventListener("pointerdown", unlock);
+          window.removeEventListener("keydown", unlock);
+          window.removeEventListener("mousemove", unlock);
+          window.removeEventListener("touchstart", unlock);
+        }
+      };
+      window.addEventListener("pointerdown", unlock);
+      window.addEventListener("keydown", unlock);
+      window.addEventListener("mousemove", unlock);
+      window.addEventListener("touchstart", unlock);
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>

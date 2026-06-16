@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raymarched Mandelbulb</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+  #c { display: block; width: 100vw; height: 100vh; cursor: grab; }
+  #c.dragging { cursor: grabbing; }
+  #overlay {
+    position: fixed; top: 16px; left: 18px; z-index: 10;
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    color: #cfe3ff; text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+    pointer-events: none; user-select: none;
+  }
+  #overlay h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.04em; }
+  #overlay p  { margin: 4px 0 0; font-size: 12px; opacity: 0.7; letter-spacing: 0.02em; }
+  #fallback {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    color: #ddd; font-family: sans-serif; font-size: 18px; text-align: center; padding: 24px;
+    background: #0a0a12; z-index: 20;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <h1>Raymarched Mandelbulb</h1>
+  <p>drag to orbit &middot; scroll to zoom</p>
+</div>
+<div id="fallback">WebGL is not available in this browser, so the fractal can&rsquo;t be rendered.</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- WebGL availability check ----------
+  function webglAvailable() {
+    try {
+      var c = document.createElement('canvas');
+      return !!(window.WebGLRenderingContext &&
+               (c.getContext('webgl') || c.getContext('experimental-webgl')));
+    } catch (e) { return false; }
+  }
+  if (!window.THREE || !webglAvailable()) {
+    document.getElementById('fallback').style.display = 'flex';
+    return;
+  }
+
+  // ---------- Shaders ----------
+  var vertexShader = [
+    'void main() {',
+    '  gl_Position = vec4(position, 1.0);', // PlaneGeometry(2,2) is already clip-space
+    '}'
+  ].join('\n');
+
+  var fragmentShader = [
+    'precision highp float;',
+    '',
+    'uniform float u_time;',
+    'uniform vec2  u_resolution;',
+    'uniform vec2  u_mouse;',
+    'uniform vec3  u_camPos;',
+    'uniform vec3  u_camTarget;',
+    '',
+    '// ---- Tunables (raise for quality, lower for speed on weak GPUs) ----',
+    '#define MAX_STEPS   96',
+    '#define MAX_DIST    12.0',
+    '#define MIN_DIST    0.0008',
+    '#define MB_ITER     8',
+    '#define BAILOUT     2.0',
+    '#define SHADOW_STEPS 28',
+    '#define AO_STEPS    5',
+    '',
+    'float g_power;',
+    '',
+    '// Mandelbulb distance estimator + orbit trap (trap.w = min radius)',
+    'float DE(vec3 pos, out vec4 trap) {',
+    '  vec3 z = pos;',
+    '  float dr = 1.0;',
+    '  float r = 0.0;',
+    '  vec4 t = vec4(1e10);',
+    '  for (int i = 0; i < MB_ITER; i++) {',
+    '    r = length(z);',
+    '    if (r > BAILOUT) break;',
+    '    float theta = acos(clamp(z.z / r, -1.0, 1.0));',
+    '    float phi   = atan(z.y, z.x);',
+    '    float rp    = pow(r, g_power - 1.0);',
+    '    dr = rp * g_power * dr + 1.0;',
+    '    float zr = rp * r;            // pow(r, g_power)',
+    '    theta *= g_power;',
+    '    phi   *= g_power;',
+    '    z = zr * vec3(sin(theta) * cos(phi),',
+    '                  sin(theta) * sin(phi),',
+    '                  cos(theta));',
+    '    z += pos;',
+    '    t = min(t, vec4(abs(z), r));',
+    '  }',
+    '  trap = t;',
+    '  return 0.5 * log(r) * r / dr;',
+    '}',
+    '',
+    'float map(vec3 p) { vec4 t; return DE(p, t); }',
+    '',
+    'vec3 calcNormal(vec3 p) {',
+    '  vec2 e = vec2(1.0, -1.0) * 0.0006;',
+    '  return normalize(',
+    '    e.xyy * map(p + e.xyy) +',
+    '    e.yyx * map(p + e.yyx) +',
+    '    e.yxy * map(p + e.yxy) +',
+    '    e.xxx * map(p + e.xxx));',
+    '}',
+    '',
+    'float softShadow(vec3 ro, vec3 rd, float k) {',
+    '  float res = 1.0;',
+    '  float t = 0.02;',
+    '  for (int i = 0; i < SHADOW_STEPS; i++) {',
+    '    float h = map(ro + rd * t);',
+    '    if (h < 0.0008) return 0.0;',
+    '    res = min(res, k * h / t);',
+    '    t += clamp(h, 0.01, 0.3);',
+    '    if (t > 6.0) break;',
+    '  }',
+    '  return clamp(res, 0.0, 1.0);',
+    '}',
+    '',
+    'float calcAO(vec3 p, vec3 n) {',
+    '  float occ = 0.0;',
+    '  float sca = 1.0;',
+    '  for (int i = 0; i < AO_STEPS; i++) {',
+    '    float h = 0.01 + 0.14 * float(i) / float(AO_STEPS);',
+    '    float d = map(p + n * h);',
+    '    occ += (h - d) * sca;',
+    '    sca *= 0.92;',
+    '  }',
+    '  return clamp(1.0 - 2.5 * occ, 0.0, 1.0);',
+    '}',
+    '',
+    'vec3 palette(float t) {',
+    '  return 0.5 + 0.5 * cos(6.28318 * (t + vec3(0.0, 0.33, 0.67)));',
+    '}',
+    '',
+    'void main() {',
+    '  vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;',
+    '',
+    '  g_power = 8.0 + 0.8 * sin(u_time * 0.15);',
+    '',
+    '  vec3 ro    = u_camPos;',
+    '  vec3 fwd   = normalize(u_camTarget - ro);',
+    '  vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));',
+    '  vec3 up    = cross(right, fwd);',
+    '  vec3 rd    = normalize(uv.x * right + uv.y * up + 1.3 * fwd);',
+    '',
+    '  float t = 0.0;',
+    '  int   steps = 0;',
+    '  bool  hit = false;',
+    '  vec4  trap = vec4(0.0);',
+    '  for (int i = 0; i < MAX_STEPS; i++) {',
+    '    vec3 p = ro + rd * t;',
+    '    float d = DE(p, trap);',
+    '    if (d < MIN_DIST * t + 0.0003) { hit = true; steps = i; break; }',
+    '    t += d;',
+    '    steps = i;',
+    '    if (t > MAX_DIST) break;',
+    '  }',
+    '',
+    '  vec3 col;',
+    '  float glow = float(steps) / float(MAX_STEPS);',
+    '',
+    '  if (hit) {',
+    '    vec3 p = ro + rd * t;',
+    '    vec3 n = calcNormal(p);',
+    '',
+    '    vec3 lightDir = normalize(vec3(0.6 + u_mouse.x * 0.5,',
+    '                                   0.7 + u_mouse.y * 0.5,',
+    '                                   0.4));',
+    '    float dif = clamp(dot(n, lightDir), 0.0, 1.0);',
+    '    float sh  = softShadow(p + n * 0.002, lightDir, 12.0);',
+    '    float ao  = calcAO(p, n);',
+    '',
+    '    float amb = 0.4 + 0.6 * n.y;',
+    '    vec3 baseCol = palette(trap.w * 0.5 + 0.3 * length(trap.xyz) + u_time * 0.03);',
+    '',
+    '    col  = baseCol * (0.15 * amb * ao);',         
+    '    col += baseCol * dif * sh * 1.1;',            
+    '    float rim = pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.0);',
+    '    col += rim * baseCol * 0.4;',
+    '    col *= ao;',
+    '    col = mix(col, vec3(0.0), clamp(t / MAX_DIST, 0.0, 1.0) * 0.6);',
+    '  } else {',
+    '    vec3 bg = vec3(0.01, 0.012, 0.02);',
+    '    vec3 glowCol = palette(u_time * 0.03 + 0.5);',
+    '    col = bg + glowCol * pow(glow, 2.0) * 0.6;',
+    '  }',
+    '',
+    '  col = col / (1.0 + col);',          // Reinhard tone map
+    '  col = pow(col, vec3(0.4545));',     // gamma
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  // ---------- Three.js setup ----------
+  var canvas = document.getElementById('c');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  var scene  = new THREE.Scene();
+  var camera = new THREE.Camera(); // unused: geometry is already in clip space
+
+  var uniforms = {
+    u_time:      { value: 0.0 },
+    u_resolution:{ value: new THREE.Vector2() },
+    u_mouse:     { value: new THREE.Vector2(0, 0) },
+    u_camPos:    { value: new THREE.Vector3() },
+    u_camTarget: { value: new THREE.Vector3() }
+  };
+
+  var material = new THREE.ShaderMaterial({
+    uniforms: uniforms,
+    vertexShader: vertexShader,
+    fragmentShader: fragmentShader
+  });
+
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+  scene.add(mesh);
+
+  // ---------- Camera / navigation state (orbit) ----------
+  var TARGET = new THREE.Vector3(0, 0, 0); // form is centered at the origin
+  var theta = 0.0;                 // azimuth (around Y)
+  var phi = Math.PI * 0.5;         // polar angle from +Y, kept away from poles
+  var radius = 2.6;                // distance from the form
+  var AUTO_ROTATE = 0.06;          // slow cinematic drift (rad/sec)
+  var MIN_CLEARANCE = 0.03;        // push out if we'd clip the surface
+  var camPos = new THREE.Vector3();
+  var dragging = false, lastX = 0, lastY = 0;
+
+  // camPos from spherical coords around TARGET
+  function orbitToCartesian(out) {
+    var sp = Math.sin(phi);
+    return out.set(
+      TARGET.x + radius * sp * Math.sin(theta),
+      TARGET.y + radius * Math.cos(phi),
+      TARGET.z + radius * sp * Math.cos(theta)
+    );
+  }
+
+  // JS port of the Mandelbulb DE, used only for camera collision tests
+  function mandelbulbDE(p, power) {
+    var zx = p.x, zy = p.y, zz = p.z;
+    var dr = 1.0, r = 0.0;
+    for (var i = 0; i < 8; i++) {
+      r = Math.sqrt(zx * zx + zy * zy + zz * zz);
+      if (r < 1e-9) return -1.0;
+      if (r > 2.0) break;
+      var theta = Math.acos(Math.max(-1.0, Math.min(1.0, zz / r)));
+      var phi   = Math.atan2(zy, zx);
+      var rp    = Math.pow(r, power - 1.0);
+      dr = rp * power * dr + 1.0;
+      var zr = rp * r;
+      theta *= power; phi *= power;
+      var st = Math.sin(theta);
+      zx = zr * st * Math.cos(phi) + p.x;
+      zy = zr * st * Math.sin(phi) + p.y;
+      zz = zr * Math.cos(theta)    + p.z;
+    }
+    return 0.5 * Math.log(r) * r / dr;
+  }
+
+  // ---------- Events ----------
+  canvas.addEventListener('mousedown', function (e) {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    canvas.classList.add('dragging');
+  });
+  window.addEventListener('mouseup', function () {
+    dragging = false; canvas.classList.remove('dragging');
+  });
+  window.addEventListener('mousemove', function (e) {
+    uniforms.u_mouse.value.set(
+      (e.clientX / window.innerWidth)  * 2.0 - 1.0,
+      -((e.clientY / window.innerHeight) * 2.0 - 1.0)
+    );
+    if (!dragging) return;
+    var dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    theta -= dx * 0.006;
+    phi   -= dy * 0.006;
+    // keep off the poles so the camera basis never degenerates
+    phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+  });
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    radius += e.deltaY * 0.0015;
+    radius = Math.max(1.25, Math.min(5.0, radius));
+  }, { passive: false });
+
+  function onResize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    var dbs = renderer.getDrawingBufferSize(new THREE.Vector2());
+    uniforms.u_resolution.value.set(dbs.x, dbs.y);
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  // ---------- Update + render loop ----------
+  var clock = new THREE.Clock();
+
+  function update(dt, time) {
+    var power = 8.0 + 0.8 * Math.sin(time * 0.15);
+
+    // slow cinematic drift, paused while the user is dragging
+    if (!dragging) theta += AUTO_ROTATE * dt;
+
+    orbitToCartesian(camPos);
+
+    // direction-dependent anti-clip: if this orbit point is inside/near the
+    // surface, ease the radius outward until it clears (handles the lobes the
+    // bounding sphere alone would miss)
+    var guard = 0;
+    while (mandelbulbDE({ x: camPos.x, y: camPos.y, z: camPos.z }, power) < MIN_CLEARANCE
+           && radius < 5.0 && guard < 12) {
+      radius += 0.03;
+      orbitToCartesian(camPos);
+      guard++;
+    }
+
+    uniforms.u_camPos.value.copy(camPos);
+    uniforms.u_camTarget.value.copy(TARGET);
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    var dt = Math.min(clock.getDelta(), 0.05);
+    var time = clock.getElapsedTime();
+    uniforms.u_time.value = time;
+    update(dt, time);
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

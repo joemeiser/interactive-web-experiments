@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<title>Specimen — Procedural Sculpture Viewer</title>
+<style>
+  :root{
+    --ink:#0e1014;
+    --glass:rgba(18,20,26,0.72);
+    --line:rgba(255,255,255,0.12);
+    --line-strong:rgba(255,255,255,0.22);
+    --text:#e9e7e1;
+    --dim:#8a8e98;
+    --signal:#d9a441;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--ink); color:var(--text); }
+  canvas{ display:block; }
+
+  /* ---- museum wall label (title) ---- */
+  #label{
+    position:fixed; left:24px; bottom:22px; z-index:5;
+    max-width:60vw; pointer-events:none;
+    text-shadow:0 1px 18px rgba(0,0,0,0.55);
+  }
+  #label .name{
+    font-family:var(--sans); font-size:19px; font-weight:600;
+    letter-spacing:0.01em; font-style:italic; margin:0 0 4px;
+  }
+  #label .meta{
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    letter-spacing:0.04em; line-height:1.6; margin:0;
+  }
+  #label .meta b{ color:var(--text); font-weight:500; }
+  #hint{
+    position:fixed; left:24px; top:20px; z-index:5; pointer-events:none;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    letter-spacing:0.06em; text-transform:uppercase;
+    text-shadow:0 1px 14px rgba(0,0,0,0.6);
+  }
+
+  /* ---- instrument panel ---- */
+  #panel{
+    position:fixed; top:18px; right:18px; z-index:6;
+    width:248px; max-height:calc(100vh - 36px); overflow:auto;
+    background:var(--glass);
+    backdrop-filter:blur(14px) saturate(1.1);
+    -webkit-backdrop-filter:blur(14px) saturate(1.1);
+    border:1px solid var(--line);
+    border-radius:2px;
+    font-family:var(--mono); font-size:11px; color:var(--text);
+  }
+  #panel .grp{ padding:14px 16px; border-bottom:1px solid var(--line); }
+  #panel .grp:last-child{ border-bottom:0; }
+  #panel .hd{
+    font-size:10px; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--dim); margin:0 0 11px;
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  .row{ margin:11px 0; }
+  .row:first-child{ margin-top:0; }
+  .row label{
+    display:flex; justify-content:space-between; align-items:baseline;
+    letter-spacing:0.04em; margin-bottom:6px;
+  }
+  .row label .v{ color:var(--signal); font-variant-numeric:tabular-nums; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:2px;
+    background:var(--line-strong); outline:none; cursor:pointer; margin:0;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:13px; height:13px;
+    background:var(--text); border:none; border-radius:50%; cursor:pointer;
+    transition:transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{ transform:scale(1.25); background:var(--signal); }
+  input[type=range]::-moz-range-thumb{
+    width:13px; height:13px; background:var(--text); border:none;
+    border-radius:50%; cursor:pointer;
+  }
+  /* segmented buttons */
+  .seg{ display:flex; gap:0; border:1px solid var(--line-strong); border-radius:2px; overflow:hidden; }
+  .seg button{
+    flex:1; appearance:none; background:transparent; color:var(--dim);
+    border:none; border-right:1px solid var(--line-strong);
+    padding:7px 4px; font-family:var(--mono); font-size:10px;
+    letter-spacing:0.06em; text-transform:uppercase; cursor:pointer;
+    transition:background .12s,color .12s;
+  }
+  .seg button:last-child{ border-right:0; }
+  .seg button:hover{ color:var(--text); }
+  .seg button.on{ background:var(--signal); color:#1a1409; font-weight:600; }
+  /* toggle pill */
+  .toggle{
+    display:flex; justify-content:space-between; align-items:center;
+    cursor:pointer; user-select:none; letter-spacing:0.04em;
+  }
+  .toggle .sw{ width:30px; height:16px; border:1px solid var(--line-strong); border-radius:9px; position:relative; transition:background .15s; }
+  .toggle .sw::after{ content:""; position:absolute; top:1px; left:1px; width:12px; height:12px; border-radius:50%; background:var(--dim); transition:left .15s,background .15s; }
+  .toggle.on .sw{ background:rgba(217,164,65,0.25); border-color:var(--signal); }
+  .toggle.on .sw::after{ left:15px; background:var(--signal); }
+  /* color */
+  input[type=color]{
+    -webkit-appearance:none; appearance:none; width:34px; height:18px;
+    border:1px solid var(--line-strong); border-radius:2px; padding:0;
+    background:transparent; cursor:pointer;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{ padding:2px; }
+  input[type=color]::-webkit-color-swatch{ border:none; border-radius:1px; }
+  /* randomize */
+  #reseed{
+    width:100%; appearance:none; cursor:pointer;
+    background:transparent; color:var(--text);
+    border:1px solid var(--line-strong); border-radius:2px;
+    padding:9px; font-family:var(--mono); font-size:11px;
+    letter-spacing:0.12em; text-transform:uppercase;
+    transition:background .12s,border-color .12s;
+  }
+  #reseed:hover{ background:var(--signal); color:#1a1409; border-color:var(--signal); }
+  #reseed:active{ transform:translateY(1px); }
+
+  /* ---- error state ---- */
+  #fallback{
+    position:fixed; inset:0; z-index:30; display:none;
+    align-items:center; justify-content:center; padding:32px;
+    background:var(--ink);
+  }
+  #fallback div{
+    font-family:var(--mono); font-size:13px; line-height:1.7;
+    color:var(--text); max-width:440px; text-align:center;
+    border:1px solid var(--line); padding:28px; border-radius:2px;
+  }
+  #fallback b{ color:var(--signal); }
+
+  @media (max-width:640px){
+    #panel{ width:210px; }
+    #label{ max-width:50vw; }
+  }
+  @media (prefers-reduced-motion:reduce){
+    input[type=range]::-webkit-slider-thumb{ transition:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="hint">Drag · orbit&nbsp;&nbsp;Scroll · zoom&nbsp;&nbsp;Right-drag · pan</div>
+
+<div id="label">
+  <p class="name">Untitled (Specimen)</p>
+  <p class="meta">
+    Procedural displacement on a subdivided icosphere<br>
+    Generated in code · no model files<br>
+    seed&nbsp;<b id="seedout">—</b> · <span id="triout">—</span> triangles
+  </p>
+</div>
+
+<div id="panel">
+  <div class="grp">
+    <p class="hd"><span>Light</span></p>
+    <div class="row">
+      <label>Key azimuth <span class="v" id="azv">45°</span></label>
+      <input type="range" id="az" min="0" max="360" step="1" value="45">
+    </div>
+    <div class="row">
+      <label>Key elevation <span class="v" id="elv">35°</span></label>
+      <input type="range" id="el" min="-80" max="85" step="1" value="35">
+    </div>
+    <div class="row">
+      <label>Key color <input type="color" id="lcol" value="#ffe9c4"></label>
+    </div>
+    <div class="row">
+      <div class="toggle on" id="rim"><span>Rim light</span><span class="sw"></span></div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <p class="hd"><span>Form</span></p>
+    <div class="row">
+      <label>Displacement <span class="v" id="dispv">0.45</span></label>
+      <input type="range" id="disp" min="0" max="1.1" step="0.01" value="0.45">
+    </div>
+    <div class="row">
+      <label>Noise frequency <span class="v" id="freqv">1.60</span></label>
+      <input type="range" id="freq" min="0.4" max="4.5" step="0.05" value="1.6">
+    </div>
+    <div class="row">
+      <label>Twist <span class="v" id="twistv">0.60</span></label>
+      <input type="range" id="twist" min="0" max="2" step="0.01" value="0.6">
+    </div>
+  </div>
+
+  <div class="grp">
+    <p class="hd"><span>Surface</span></p>
+    <div class="seg" id="mat">
+      <button data-mat="matte" class="on">Matte</button>
+      <button data-mat="metal">Metal</button>
+      <button data-mat="wire">Wire</button>
+    </div>
+  </div>
+
+  <div class="grp">
+    <button id="reseed">Reseed form</button>
+  </div>
+</div>
+
+<div id="fallback"><div>
+  <b>Can't render the sculpture.</b><br><br>
+  <span id="fbmsg">Your browser doesn't appear to support WebGL.</span>
+</div></div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---- guard: did the CDN scripts load? ----
+  function fail(msg){
+    var fb = document.getElementById('fallback');
+    if(msg) document.getElementById('fbmsg').textContent = msg;
+    fb.style.display = 'flex';
+  }
+  if(typeof THREE === 'undefined'){
+    fail("Three.js failed to load from the CDN. Open this file with an internet connection (it pulls Three.js r128 from unpkg).");
+    return;
+  }
+  // ---- guard: WebGL present? ----
+  (function(){
+    try{
+      var c = document.createElement('canvas');
+      if(!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')))){
+        fail(); return;
+      }
+    }catch(e){ fail(); return; }
+
+    boot();
+  })();
+
+  // =====================================================================
+  function boot(){
+
+  // ---------- seedable Perlin noise (mulberry32 -> permutation) ----------
+  function makeNoise(seed){
+    var a = seed >>> 0;
+    function rand(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    var perm = new Array(256);
+    for(var i=0;i<256;i++) perm[i]=i;
+    for(var j=255;j>0;j--){ var k=Math.floor(rand()*(j+1)); var tmp=perm[j]; perm[j]=perm[k]; perm[k]=tmp; }
+    var p = new Uint8Array(512);
+    for(var m=0;m<512;m++) p[m]=perm[m & 255];
+
+    function fade(t){ return t*t*t*(t*(t*6-15)+10); }
+    function lerp(x,b,t){ return x + t*(b-x); }
+    function grad(h,x,y,z){
+      h &= 15;
+      var u = h<8 ? x : y;
+      var v = h<4 ? y : (h===12||h===14 ? x : z);
+      return ((h&1)===0?u:-u) + ((h&2)===0?v:-v);
+    }
+    return function(x,y,z){
+      var X=Math.floor(x)&255, Y=Math.floor(y)&255, Z=Math.floor(z)&255;
+      x-=Math.floor(x); y-=Math.floor(y); z-=Math.floor(z);
+      var u=fade(x), v=fade(y), w=fade(z);
+      var A=p[X]+Y, AA=p[A]+Z, AB=p[A+1]+Z;
+      var B=p[X+1]+Y, BA=p[B]+Z, BB=p[B+1]+Z;
+      return lerp(
+        lerp(lerp(grad(p[AA],x,y,z),   grad(p[BA],x-1,y,z),   u),
+             lerp(grad(p[AB],x,y-1,z), grad(p[BB],x-1,y-1,z), u), v),
+        lerp(lerp(grad(p[AA+1],x,y,z-1),   grad(p[BA+1],x-1,y,z-1),   u),
+             lerp(grad(p[AB+1],x,y-1,z-1), grad(p[BB+1],x-1,y-1,z-1), u), v),
+        w);
+    };
+  }
+
+  // ---------- custom indexed icosphere (smooth shared verts) ----------
+  function normalize(v){
+    var l = Math.hypot(v[0],v[1],v[2]) || 1;
+    return [v[0]/l, v[1]/l, v[2]/l];
+  }
+  function createIcosphere(subdiv){
+    var t = (1 + Math.sqrt(5)) / 2;
+    var verts = [
+      [-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],
+      [0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],
+      [t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]
+    ].map(normalize);
+    var faces = [
+      [0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],
+      [1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+      [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],
+      [4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]
+    ];
+    var cache = {};
+    function mid(a,b){
+      var key = a<b ? a+"_"+b : b+"_"+a;
+      if(cache[key] !== undefined) return cache[key];
+      var pa=verts[a], pb=verts[b];
+      var idx = verts.length;
+      verts.push(normalize([(pa[0]+pb[0])/2,(pa[1]+pb[1])/2,(pa[2]+pb[2])/2]));
+      cache[key]=idx; return idx;
+    }
+    for(var s=0;s<subdiv;s++){
+      var nf=[];
+      for(var f=0; f<faces.length; f++){
+        var fa=faces[f];
+        var x=mid(fa[0],fa[1]), y=mid(fa[1],fa[2]), z=mid(fa[2],fa[0]);
+        nf.push([fa[0],x,z],[fa[1],y,x],[fa[2],z,y],[x,y,z]);
+      }
+      faces=nf;
+    }
+    var pos = new Float32Array(verts.length*3);
+    for(var i=0;i<verts.length;i++){ pos[i*3]=verts[i][0]; pos[i*3+1]=verts[i][1]; pos[i*3+2]=verts[i][2]; }
+    var index = new Uint32Array(faces.length*3);
+    for(var g=0; g<faces.length; g++){ index[g*3]=faces[g][0]; index[g*3+1]=faces[g][1]; index[g*3+2]=faces[g][2]; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(verts.length*3), 3));
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    return geo;
+  }
+
+  // ---------- procedural environment (so Metal isn't black) ----------
+  function envCube(){
+    function face(top, bot, hot){
+      var sz=128, cv=document.createElement('canvas'); cv.width=cv.height=sz;
+      var x=cv.getContext('2d');
+      var g=x.createLinearGradient(0,0,0,sz); g.addColorStop(0,top); g.addColorStop(1,bot);
+      x.fillStyle=g; x.fillRect(0,0,sz,sz);
+      if(hot){
+        var r=x.createRadialGradient(sz*0.5,sz*0.32,0, sz*0.5,sz*0.32,sz*0.55);
+        r.addColorStop(0,hot); r.addColorStop(1,'rgba(0,0,0,0)');
+        x.fillStyle=r; x.fillRect(0,0,sz,sz);
+      }
+      return cv;
+    }
+    var side = function(){ return face('#3a3d46','#0c0d11'); };
+    var faces = [
+      side(), side(),                                   // +x -x
+      face('#6b6256','#2a2c33','#cdbfa0'),              // +y  (sky / warm hotspot)
+      face('#101116','#050507'),                        // -y  (floor)
+      side(), side()                                    // +z -z
+    ];
+    var tex = new THREE.CubeTexture(faces);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // ---------------- scene / renderer ----------------
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0e1014);
+
+  var camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0.4, 3.4);
+
+  var renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  document.body.appendChild(renderer.domElement);
+
+  var controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.minDistance = 1.8;
+  controls.maxDistance = 8;
+  controls.target.set(0,0,0);
+
+  // lights
+  var ambient = new THREE.AmbientLight(0xffffff, 0.35);
+  scene.add(ambient);
+  var key = new THREE.DirectionalLight(0xffe9c4, 2.0);
+  scene.add(key);
+  var rim = new THREE.DirectionalLight(0x88a6ff, 1.0);
+  scene.add(rim);
+
+  // material + mesh
+  var env = envCube();
+  var material = new THREE.MeshStandardMaterial({
+    vertexColors:true, roughness:0.85, metalness:0.05,
+    envMap:env, envMapIntensity:0.5, flatShading:false
+  });
+
+  var SUBDIV = 5;                       // 20480 triangles
+  var geometry = createIcosphere(SUBDIV);
+  var base = geometry.attributes.position.array.slice(); // pristine unit-sphere copy
+  var mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
+
+  document.getElementById('triout').textContent =
+    (geometry.index.count/3).toLocaleString();
+
+  // ---------------- state ----------------
+  var P = {
+    az:45, el:35, lcol:'#ffe9c4', rim:true,
+    disp:0.45, freq:1.6, twist:0.6,
+    seed:(Math.random()*1e9)|0,
+    mat:'matte'
+  };
+  var colLo = new THREE.Color('#214b52'); // trough
+  var colHi = new THREE.Color('#e3d4b0'); // crest
+  var tmpCol = new THREE.Color();
+  var needsBuild = true;
+
+  // ---------------- rebuild geometry from base + params ----------------
+  function build(){
+    var n = makeNoise(P.seed);
+    var pos = geometry.attributes.position.array;
+    var col = geometry.attributes.color.array;
+    var f = P.freq, amp = P.disp, tw = P.twist * 3.0;
+
+    for(var i=0;i<base.length;i+=3){
+      var bx=base[i], by=base[i+1], bz=base[i+2];
+
+      // fractal Brownian motion (4 octaves) sampled in object space
+      var val=0, a=1, fr=1, norm=0;
+      for(var o=0;o<4;o++){
+        val += a * n(bx*f*fr + 11.3, by*f*fr - 7.1, bz*f*fr + 3.7);
+        norm += a; a*=0.5; fr*=2.0;
+      }
+      val /= norm;                       // ~[-1,1]
+
+      var r = 1 + amp * val;             // radial push
+      var x = bx*r, y = by*r, z = bz*r;
+
+      // twist about Y, driven by height
+      var ang = by * tw;
+      var ca=Math.cos(ang), sa=Math.sin(ang);
+      var xr = x*ca - z*sa;
+      var zr = x*sa + z*ca;
+
+      pos[i]=xr; pos[i+1]=y; pos[i+2]=zr;
+
+      var ct = val*0.5 + 0.5;
+      tmpCol.copy(colLo).lerp(colHi, ct);
+      col[i]=tmpCol.r; col[i+1]=tmpCol.g; col[i+2]=tmpCol.b;
+    }
+
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.color.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+  }
+
+  // ---------------- lights from params ----------------
+  function applyLights(){
+    var az=P.az*Math.PI/180, el=P.el*Math.PI/180, R=5;
+    key.position.set(R*Math.cos(el)*Math.cos(az), R*Math.sin(el), R*Math.cos(el)*Math.sin(az));
+    key.color.set(P.lcol);
+    rim.visible = P.rim;
+    rim.position.set(-R*Math.cos(el)*Math.cos(az), R*0.55, -R*Math.cos(el)*Math.sin(az));
+  }
+
+  // ---------------- material modes ----------------
+  function applyMaterial(){
+    if(P.mat==='matte'){ material.wireframe=false; material.roughness=0.85; material.metalness=0.05; material.envMapIntensity=0.5; }
+    else if(P.mat==='metal'){ material.wireframe=false; material.roughness=0.2; material.metalness=1.0; material.envMapIntensity=1.0; }
+    else { material.wireframe=true; material.roughness=0.6; material.metalness=0.1; material.envMapIntensity=0.4; }
+    material.needsUpdate = true;
+  }
+
+  // ---------------- UI wiring ----------------
+  function $(id){ return document.getElementById(id); }
+  function bindSlider(id, key, fmt, isLight){
+    var el=$(id), out=$(id+'v');
+    function refresh(){ out.textContent = fmt(P[key]); }
+    el.addEventListener('input', function(){
+      P[key] = parseFloat(el.value); refresh();
+      if(isLight) applyLights(); else needsBuild=true;
+    });
+    refresh();
+  }
+  bindSlider('az','az',   function(v){return Math.round(v)+'\u00B0';}, true);
+  bindSlider('el','el',   function(v){return Math.round(v)+'\u00B0';}, true);
+  bindSlider('disp','disp',  function(v){return v.toFixed(2);}, false);
+  bindSlider('freq','freq',  function(v){return v.toFixed(2);}, false);
+  bindSlider('twist','twist',function(v){return v.toFixed(2);}, false);
+
+  $('lcol').addEventListener('input', function(e){ P.lcol=e.target.value; applyLights(); });
+
+  var rimToggle = $('rim');
+  rimToggle.addEventListener('click', function(){
+    P.rim=!P.rim; rimToggle.classList.toggle('on', P.rim); applyLights();
+  });
+
+  var matBtns = $('mat').querySelectorAll('button');
+  matBtns.forEach(function(b){
+    b.addEventListener('click', function(){
+      matBtns.forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on'); P.mat=b.dataset.mat; applyMaterial();
+    });
+  });
+
+  function syncForm(){
+    $('disp').value=P.disp;  $('dispv').textContent=P.disp.toFixed(2);
+    $('freq').value=P.freq;  $('freqv').textContent=P.freq.toFixed(2);
+    $('twist').value=P.twist;$('twistv').textContent=P.twist.toFixed(2);
+    $('seedout').textContent = P.seed;
+  }
+  $('reseed').addEventListener('click', function(){
+    P.seed=(Math.random()*1e9)|0;
+    P.disp  = +(0.25 + Math.random()*0.7).toFixed(2);
+    P.freq  = +(0.8  + Math.random()*2.6).toFixed(2);
+    P.twist = +(Math.random()*1.4).toFixed(2);
+    syncForm(); needsBuild=true;
+  });
+
+  // ---------------- resize ----------------
+  window.addEventListener('resize', function(){
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------------- init + loop ----------------
+  applyLights(); applyMaterial(); syncForm();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if(needsBuild){ build(); needsBuild=false; }
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  }
+})();
+</script>
+</body>
+</html>

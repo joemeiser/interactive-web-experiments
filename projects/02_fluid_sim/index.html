@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ink — GPU Fluid (Three.js)</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #05060a;
+    color: #e8eaf0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  canvas { display: block; }
+  #overlay {
+    position: fixed;
+    top: 18px;
+    left: 20px;
+    pointer-events: none;
+    user-select: none;
+    z-index: 10;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  #overlay h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.92;
+  }
+  #overlay p {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    font-weight: 400;
+    opacity: 0.55;
+    letter-spacing: 0.02em;
+  }
+  #error {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    box-sizing: border-box;
+    font-size: 15px;
+    line-height: 1.5;
+    color: #ffd7d7;
+    background: #05060a;
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+  <div id="overlay">
+    <h1>Ink</h1>
+    <p>Click and drag to stir</p>
+  </div>
+  <div id="error"></div>
+
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script>
+  /* ===== FLUID-SIM-START ===== */
+  (function () {
+    "use strict";
+
+    var errEl = document.getElementById("error");
+    function fail(msg) {
+      errEl.textContent = msg;
+      errEl.style.display = "flex";
+      var ov = document.getElementById("overlay");
+      if (ov) ov.style.display = "none";
+    }
+
+    if (typeof THREE === "undefined") {
+      fail("Failed to load Three.js. Check your internet connection (this demo fetches three.js r128 from unpkg.com on first run).");
+      return;
+    }
+
+    // ---- Renderer + WebGL capability checks -------------------------------
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, depth: false, stencil: false, preserveDrawingBuffer: false });
+    } catch (e) {
+      fail("WebGL is not available in this browser, so the fluid simulation cannot run.");
+      return;
+    }
+
+    var gl = renderer.getContext();
+    var isWebGL2 = (typeof WebGL2RenderingContext !== "undefined") && (gl instanceof WebGL2RenderingContext);
+    if (!isWebGL2) {
+      fail("This demo requires WebGL2, which is not available in this browser.");
+      return;
+    }
+    // RGBA16F is only color-renderable in WebGL2 with this extension.
+    if (!gl.getExtension("EXT_color_buffer_float")) {
+      fail("Your GPU/browser does not support rendering to half-float textures (EXT_color_buffer_float), which this simulation needs.");
+      return;
+    }
+
+    renderer.autoClear = false;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // ---- Fullscreen-quad scene -------------------------------------------
+    var camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+    var scene = new THREE.Scene();
+    var quadGeom = new THREE.PlaneGeometry(2, 2);
+    var quad = new THREE.Mesh(quadGeom, null);
+    scene.add(quad);
+
+    function runPass(material, target) {
+      quad.material = material;
+      renderer.setRenderTarget(target || null);
+      renderer.clear();
+      renderer.render(scene, camera);
+    }
+
+    // ---- Render-target helpers (ping-pong) -------------------------------
+    function makeRT(w, h) {
+      return new THREE.WebGLRenderTarget(w, h, {
+        type: THREE.HalfFloatType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        wrapS: THREE.ClampToEdgeWrapping,
+        wrapT: THREE.ClampToEdgeWrapping,
+        depthBuffer: false,
+        stencilBuffer: false
+      });
+    }
+
+    function makeDoubleRT(w, h) {
+      var a = makeRT(w, h);
+      var b = makeRT(w, h);
+      return {
+        read: a,
+        write: b,
+        swap: function () { var t = this.read; this.read = this.write; this.write = t; }
+      };
+    }
+
+    // Decouple simulation resolution from display resolution.
+    var SIM_RES = 256;   // velocity / pressure / divergence grid
+    var DYE_RES = 512;   // dye (ink) grid — higher for crisper color
+    var simTexel = new THREE.Vector2(1 / SIM_RES, 1 / SIM_RES);
+    var dyeTexel = new THREE.Vector2(1 / DYE_RES, 1 / DYE_RES);
+
+    var velocity = makeDoubleRT(SIM_RES, SIM_RES);
+    var dye = makeDoubleRT(DYE_RES, DYE_RES);
+    var divergence = makeRT(SIM_RES, SIM_RES);
+    var pressure = makeDoubleRT(SIM_RES, SIM_RES);
+
+    // ---- Shaders ----------------------------------------------------------
+    var VERT = [
+      "varying vec2 vUv;",
+      "void main() {",
+      "  vUv = uv;",
+      "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+      "}"
+    ].join("\n");
+
+    function frag(body) { return ["varying vec2 vUv;", body].join("\n"); }
+
+    var advectFrag = frag([
+      "uniform sampler2D uVelocity;",
+      "uniform sampler2D uSource;",
+      "uniform vec2 uTexel;",      // velocity-grid texel size (for the coordinate offset)
+      "uniform float uDt;",
+      "uniform float uDissipation;",
+      "void main() {",
+      "  vec2 vel = texture2D(uVelocity, vUv).xy;",
+      "  vec2 coord = vUv - uDt * vel * uTexel;",
+      "  vec4 result = texture2D(uSource, coord);",
+      "  float decay = 1.0 + uDissipation * uDt;",
+      "  gl_FragColor = result / decay;",
+      "}"
+    ].join("\n"));
+
+    var splatFrag = frag([
+      "uniform sampler2D uTarget;",
+      "uniform vec3 uColor;",
+      "uniform vec2 uPoint;",
+      "uniform float uRadius;",
+      "uniform float uAspect;",
+      "void main() {",
+      "  vec2 p = vUv - uPoint;",
+      "  p.x *= uAspect;",
+      "  vec3 splat = exp(-dot(p, p) / uRadius) * uColor;",
+      "  vec3 base = texture2D(uTarget, vUv).xyz;",
+      "  gl_FragColor = vec4(base + splat, 1.0);",
+      "}"
+    ].join("\n"));
+
+    var divergenceFrag = frag([
+      "uniform sampler2D uVelocity;",
+      "uniform vec2 uTexel;",
+      "void main() {",
+      "  float L = texture2D(uVelocity, vUv - vec2(uTexel.x, 0.0)).x;",
+      "  float R = texture2D(uVelocity, vUv + vec2(uTexel.x, 0.0)).x;",
+      "  float B = texture2D(uVelocity, vUv - vec2(0.0, uTexel.y)).y;",
+      "  float T = texture2D(uVelocity, vUv + vec2(0.0, uTexel.y)).y;",
+      "  vec2 C = texture2D(uVelocity, vUv).xy;",
+      "  if (vUv.x - uTexel.x < 0.0) { L = -C.x; }",
+      "  if (vUv.x + uTexel.x > 1.0) { R = -C.x; }",
+      "  if (vUv.y - uTexel.y < 0.0) { B = -C.y; }",
+      "  if (vUv.y + uTexel.y > 1.0) { T = -C.y; }",
+      "  float div = 0.5 * (R - L + T - B);",
+      "  gl_FragColor = vec4(div, 0.0, 0.0, 1.0);",
+      "}"
+    ].join("\n"));
+
+    var pressureFrag = frag([
+      "uniform sampler2D uPressure;",
+      "uniform sampler2D uDivergence;",
+      "uniform vec2 uTexel;",
+      "void main() {",
+      "  float L = texture2D(uPressure, vUv - vec2(uTexel.x, 0.0)).x;",
+      "  float R = texture2D(uPressure, vUv + vec2(uTexel.x, 0.0)).x;",
+      "  float B = texture2D(uPressure, vUv - vec2(0.0, uTexel.y)).x;",
+      "  float T = texture2D(uPressure, vUv + vec2(0.0, uTexel.y)).x;",
+      "  float divergence = texture2D(uDivergence, vUv).x;",
+      "  float p = (L + R + B + T - divergence) * 0.25;",
+      "  gl_FragColor = vec4(p, 0.0, 0.0, 1.0);",
+      "}"
+    ].join("\n"));
+
+    var clearFrag = frag([
+      "uniform sampler2D uTexture;",
+      "uniform float uValue;",
+      "void main() {",
+      "  gl_FragColor = texture2D(uTexture, vUv) * uValue;",
+      "}"
+    ].join("\n"));
+
+    var gradientSubtractFrag = frag([
+      "uniform sampler2D uPressure;",
+      "uniform sampler2D uVelocity;",
+      "uniform vec2 uTexel;",
+      "void main() {",
+      "  float L = texture2D(uPressure, vUv - vec2(uTexel.x, 0.0)).x;",
+      "  float R = texture2D(uPressure, vUv + vec2(uTexel.x, 0.0)).x;",
+      "  float B = texture2D(uPressure, vUv - vec2(0.0, uTexel.y)).x;",
+      "  float T = texture2D(uPressure, vUv + vec2(0.0, uTexel.y)).x;",
+      "  vec2 vel = texture2D(uVelocity, vUv).xy;",
+      "  vel -= vec2(R - L, T - B) * 0.5;",
+      "  gl_FragColor = vec4(vel, 0.0, 1.0);",
+      "}"
+    ].join("\n"));
+
+    var displayFrag = frag([
+      "uniform sampler2D uTexture;",
+      "void main() {",
+      "  vec3 c = texture2D(uTexture, vUv).rgb;",
+      "  c = max(c, 0.0);",
+      "  c = pow(c, vec3(0.85));",            // lift midtones for vividness
+      "  gl_FragColor = vec4(c, 1.0);",
+      "}"
+    ].join("\n"));
+
+    function mat(fragSrc, uniforms) {
+      return new THREE.ShaderMaterial({
+        uniforms: uniforms,
+        vertexShader: VERT,
+        fragmentShader: fragSrc,
+        depthTest: false,
+        depthWrite: false
+      });
+    }
+
+    var advectMat = mat(advectFrag, {
+      uVelocity: { value: null }, uSource: { value: null },
+      uTexel: { value: simTexel }, uDt: { value: 0.016 }, uDissipation: { value: 0.0 }
+    });
+    var splatMat = mat(splatFrag, {
+      uTarget: { value: null }, uColor: { value: new THREE.Vector3() },
+      uPoint: { value: new THREE.Vector2() }, uRadius: { value: 0.0025 }, uAspect: { value: 1.0 }
+    });
+    var divergenceMat = mat(divergenceFrag, { uVelocity: { value: null }, uTexel: { value: simTexel } });
+    var pressureMat = mat(pressureFrag, { uPressure: { value: null }, uDivergence: { value: null }, uTexel: { value: simTexel } });
+    var clearMat = mat(clearFrag, { uTexture: { value: null }, uValue: { value: 0.8 } });
+    var gradientMat = mat(gradientSubtractFrag, { uPressure: { value: null }, uVelocity: { value: null }, uTexel: { value: simTexel } });
+    var displayMat = mat(displayFrag, { uTexture: { value: null } });
+
+    // ---- Tunables ---------------------------------------------------------
+    var VELOCITY_DISSIPATION = 0.2;
+    var DYE_DISSIPATION = 1.0;
+    var PRESSURE_DISSIPATION = 0.8;
+    var PRESSURE_ITERATIONS = 30;
+    var SPLAT_FORCE = 6000.0;
+    var SPLAT_RADIUS = 0.0025;
+
+    // ---- Pointer input ----------------------------------------------------
+    var pointer = {
+      down: false,
+      moved: false,
+      x: 0, y: 0,          // current uv
+      px: 0, py: 0,        // previous uv
+      color: new THREE.Vector3(0.4, 0.2, 0.8)
+    };
+    var hue = 0;
+
+    function hsv2rgb(h, s, v) {
+      // h in [0,1]
+      var i = Math.floor(h * 6);
+      var f = h * 6 - i;
+      var p = v * (1 - s);
+      var q = v * (1 - f * s);
+      var t = v * (1 - (1 - f) * s);
+      var r, g, b;
+      switch (i % 6) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        default: r = v; g = p; b = q; break;
+      }
+      return [r, g, b];
+    }
+
+    function setPointerFromEvent(e) {
+      var rect = renderer.domElement.getBoundingClientRect();
+      var cx, cy;
+      if (e.touches && e.touches.length) {
+        cx = e.touches[0].clientX; cy = e.touches[0].clientY;
+      } else {
+        cx = e.clientX; cy = e.clientY;
+      }
+      var nx = (cx - rect.left) / rect.width;
+      var ny = 1.0 - (cy - rect.top) / rect.height; // uv: y up
+      pointer.px = pointer.x;
+      pointer.py = pointer.y;
+      pointer.x = nx;
+      pointer.y = ny;
+      pointer.moved = true;
+    }
+
+    var dom = renderer.domElement;
+    dom.addEventListener("mousedown", function (e) {
+      pointer.down = true;
+      var rect = dom.getBoundingClientRect();
+      pointer.x = pointer.px = (e.clientX - rect.left) / rect.width;
+      pointer.y = pointer.py = 1.0 - (e.clientY - rect.top) / rect.height;
+      pointer.moved = false;
+    });
+    window.addEventListener("mousemove", function (e) { if (pointer.down) setPointerFromEvent(e); });
+    window.addEventListener("mouseup", function () { pointer.down = false; });
+
+    dom.addEventListener("touchstart", function (e) {
+      e.preventDefault();
+      pointer.down = true;
+      var rect = dom.getBoundingClientRect();
+      pointer.x = pointer.px = (e.touches[0].clientX - rect.left) / rect.width;
+      pointer.y = pointer.py = 1.0 - (e.touches[0].clientY - rect.top) / rect.height;
+      pointer.moved = false;
+    }, { passive: false });
+    dom.addEventListener("touchmove", function (e) {
+      e.preventDefault();
+      if (pointer.down) setPointerFromEvent(e);
+    }, { passive: false });
+    window.addEventListener("touchend", function () { pointer.down = false; });
+
+    function aspect() { return window.innerWidth / window.innerHeight; }
+
+    function splat(point, dx, dy, color) {
+      // velocity splat (sim res)
+      splatMat.uniforms.uTarget.value = velocity.read.texture;
+      splatMat.uniforms.uColor.value.set(dx, dy, 0.0);
+      splatMat.uniforms.uPoint.value.copy(point);
+      splatMat.uniforms.uRadius.value = SPLAT_RADIUS;
+      splatMat.uniforms.uAspect.value = aspect();
+      runPass(splatMat, velocity.write);
+      velocity.swap();
+
+      // dye splat (dye res)
+      splatMat.uniforms.uTarget.value = dye.read.texture;
+      splatMat.uniforms.uColor.value.set(color.x, color.y, color.z);
+      runPass(splatMat, dye.write);
+      dye.swap();
+    }
+
+    // ---- Resize -----------------------------------------------------------
+    function onResize() {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener("resize", onResize);
+
+    // ---- Simulation step --------------------------------------------------
+    var last = performance.now();
+
+    function step(dt) {
+      // 1. advect velocity
+      advectMat.uniforms.uVelocity.value = velocity.read.texture;
+      advectMat.uniforms.uSource.value = velocity.read.texture;
+      advectMat.uniforms.uTexel.value = simTexel;
+      advectMat.uniforms.uDt.value = dt;
+      advectMat.uniforms.uDissipation.value = VELOCITY_DISSIPATION;
+      runPass(advectMat, velocity.write);
+      velocity.swap();
+
+      // 2. mouse force + dye splat
+      if (pointer.down && pointer.moved) {
+        var dx = (pointer.x - pointer.px) * SPLAT_FORCE;
+        var dy = (pointer.y - pointer.py) * SPLAT_FORCE;
+        splat(new THREE.Vector2(pointer.x, pointer.y), dx, dy, pointer.color);
+        pointer.moved = false;
+      }
+
+      // 3. divergence
+      divergenceMat.uniforms.uVelocity.value = velocity.read.texture;
+      runPass(divergenceMat, divergence);
+
+      // 4. clear/decay pressure for faster convergence, then Jacobi iterate
+      clearMat.uniforms.uTexture.value = pressure.read.texture;
+      clearMat.uniforms.uValue.value = PRESSURE_DISSIPATION;
+      runPass(clearMat, pressure.write);
+      pressure.swap();
+
+      pressureMat.uniforms.uDivergence.value = divergence.texture;
+      for (var i = 0; i < PRESSURE_ITERATIONS; i++) {
+        pressureMat.uniforms.uPressure.value = pressure.read.texture;
+        runPass(pressureMat, pressure.write);
+        pressure.swap();
+      }
+
+      // 5. subtract pressure gradient
+      gradientMat.uniforms.uPressure.value = pressure.read.texture;
+      gradientMat.uniforms.uVelocity.value = velocity.read.texture;
+      runPass(gradientMat, velocity.write);
+      velocity.swap();
+
+      // 6. advect dye (sampling the sim-res velocity field)
+      advectMat.uniforms.uVelocity.value = velocity.read.texture;
+      advectMat.uniforms.uSource.value = dye.read.texture;
+      advectMat.uniforms.uTexel.value = simTexel;
+      advectMat.uniforms.uDt.value = dt;
+      advectMat.uniforms.uDissipation.value = DYE_DISSIPATION;
+      runPass(advectMat, dye.write);
+      dye.swap();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      var now = performance.now();
+      var dt = (now - last) / 1000;
+      last = now;
+      if (dt > 0.016666) dt = 0.016666; // clamp for stability
+      if (dt <= 0) dt = 0.016666;
+
+      // cycle dye hue over time
+      hue = (hue + dt * 0.12) % 1.0;
+      var rgb = hsv2rgb(hue, 1.0, 1.0);
+      pointer.color.set(rgb[0] * 0.15, rgb[1] * 0.15, rgb[2] * 0.15);
+
+      step(dt);
+
+      // 7. render dye to screen, scaled to fill the window
+      displayMat.uniforms.uTexture.value = dye.read.texture;
+      runPass(displayMat, null);
+    }
+
+    animate();
+  })();
+  /* ===== FLUID-SIM-END ===== */
+  </script>
+</body>
+</html>
