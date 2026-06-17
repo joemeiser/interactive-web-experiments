@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>GLOWHOP — Neon Crossing</title>
+<style>
+  :root {
+    --bg: #060812;
+    --neon: #5cf2c4;
+    --hot: #ff5e9c;
+    --gold: #ffd24a;
+    --txt: #e7f6ef;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #03040a;
+    overflow: hidden;
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    color: var(--txt);
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 18%, #101a3a 0%, #03040a 72%);
+  }
+  canvas {
+    display: block;
+    box-shadow: 0 0 70px rgba(92,242,196,0.14), 0 0 0 1px rgba(92,242,196,0.18);
+    border-radius: 8px;
+  }
+  #hint {
+    position: fixed; bottom: 9px; left: 0; right: 0;
+    text-align: center; font-size: 12px; letter-spacing: 1.5px;
+    color: rgba(231,246,239,0.38);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="hint">ARROW KEYS / WASD to hop · SPACE to start · best on desktop</div>
+<script>
+(function () {
+"use strict";
+
+// ============================================================
+// GLOWHOP — an original neon "cross the lanes" arcade game.
+// Generic genre mechanics; original theme, title, art & creature.
+// ============================================================
+
+const W = 600, H = 700;
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+// ---------- Responsive letterboxed scaling ----------
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = Math.round(W * scale) + "px";
+  canvas.style.height = Math.round(H * scale) + "px";
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ---------- Palette (neon night) ----------
+const C = {
+  bank:    "#13243f",
+  bankHi:  "#1c3358",
+  road:    "#0d1020",
+  laneMark:"#2a3358",
+  stream:  "#0a2740",
+  streamHi:"#103a5e",
+  pad:     "#1a8f6e",
+  padGlow: "#5cf2c4",
+  hopMid:  "#6be0c4",
+  hopDk:   "#2f9c84",
+  hopLt:   "#aef7e6",
+  drift:   "#6d4bd6",
+  driftDk: "#4a2fa0",
+  beetle:  "#2fa37a",
+  beetleDk:"#1d6b50",
+  gold:    "#ffd24a",
+  hot:     "#ff5e9c",
+  neon:    "#5cf2c4",
+  txt:     "#e7f6ef",
+};
+const POD_COLORS = ["#ff5e9c","#4aa8ff","#ffd24a","#b06bff","#3df0d0","#ff8a4a"];
+
+// ---------- Zones (grid-aligned to the 50px hop so every landing row is a lane) ----------
+// Hopper center starts at cy=663; each Up hop lands on 613,563,...,113,63.
+const GOAL_Y0 = 0,    GOAL_Y1 = 88;     // pods centered on row 63
+const STREAM_Y0 = 88, STREAM_Y1 = 238;  // lanes on rows 113,163,213
+const MEDIAN_Y0 = 238, MEDIAN_Y1 = 288; // safe row 263
+const ROAD_Y0 = 288,  ROAD_Y1 = 538;    // lanes on rows 313..513
+const START_Y0 = 538, START_Y1 = 700;   // start bank, creature on row 663
+const STEP = 50;
+const HOP_X = 44;
+const HOP = 30;
+const START_X = (W - HOP) / 2;
+const START_HOP_Y = 648;                 // center 663
+
+const NUM_PODS = 5;
+const PODS = [];
+for (let i = 0; i < NUM_PODS; i++) {
+  PODS.push({ cx: (W / (NUM_PODS + 1)) * (i + 1), filled: false });
+}
+const POD_W = 56, POD_H = 50;
+const GOAL_ROW = 63;
+
+const STREAM_LANES = [
+  { y: 113, dir: 1,  speed: 38, type: "drift",  gap: 150 },
+  { y: 163, dir: -1, speed: 54, type: "skimmer",gap: 130 },
+  { y: 213, dir: 1,  speed: 46, type: "drift",  gap: 160 },
+];
+const ROAD_LANES = [
+  { y: 313, dir: 1,  speed: 70,  unlock: 0 },
+  { y: 363, dir: -1, speed: 98,  unlock: 0 },
+  { y: 413, dir: 1,  speed: 58,  unlock: 0 },
+  { y: 463, dir: -1, speed: 120, unlock: 2 },
+  { y: 513, dir: 1,  speed: 86,  unlock: 4 },
+];
+
+// ---------- Audio (Web Audio, non-blocking) ----------
+let AC = null, master = null;
+function initAudio() {
+  if (AC) return;
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    master = AC.createGain(); master.gain.value = 0.5; master.connect(AC.destination);
+  } catch (e) { AC = null; }
+}
+function resumeAudio() { if (AC && AC.state === "suspended") AC.resume(); }
+function tone(freq, dur, when, vol, type) {
+  if (!AC) return;
+  const t0 = AC.currentTime + (when || 0);
+  const osc = AC.createOscillator(), g = AC.createGain();
+  osc.type = type || "sine"; osc.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol || 0.18, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(master);
+  osc.start(t0); osc.stop(t0 + dur + 0.02);
+}
+const sndJump   = () => tone(520, 0.05, 0, 0.14, "triangle");
+const sndHit    = () => { tone(150, 0.22, 0, 0.30, "square"); tone(90, 0.3, 0.02, 0.22, "square"); };
+const sndSplash = () => { tone(320, 0.16, 0, 0.20, "sine"); tone(170, 0.22, 0.04, 0.16, "sine"); };
+const sndPod    = () => { [659, 880, 1175].forEach((n, i) => tone(n, 0.10, i * 0.06, 0.18, "triangle")); };
+const sndWin    = () => { [523, 659, 784, 1047, 1319].forEach((n, i) => tone(n, 0.13, i * 0.09, 0.2, "sine")); };
+const sndNear   = () => tone(1200, 0.04, 0, 0.06, "sine");
+
+// ---------- High score ----------
+function loadBest() { try { return parseInt(localStorage.getItem("glowhop_best") || "0", 10) || 0; } catch (e) { return 0; } }
+function saveBest(v) { try { localStorage.setItem("glowhop_best", String(v)); } catch (e) {} }
+
+// ---------- Entities ----------
+function makeCar(lane) {
+  const w = [50, 80, 115, 150][Math.floor(Math.random() * 4)], h = 32;
+  const x = lane.dir === 1 ? -w : W;
+  return { x, y: lane.y - h / 2, w, h, dir: lane.dir, base: lane.speed,
+           color: POD_COLORS[Math.floor(Math.random() * POD_COLORS.length)], _near: false };
+}
+function makePlatform(lane) {
+  const units = lane.type === "drift" ? (2 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 2));
+  const unitW = lane.type === "drift" ? 46 : 40;
+  const w = units * unitW, h = 34;
+  const x = lane.dir === 1 ? -w : W;
+  return { x, y: lane.y - h / 2, w, h, units, unitW, dir: lane.dir, base: lane.speed, type: lane.type,
+           diveTimer: lane.type === "skimmer" ? (2 + Math.random() * 3) : 0,
+           submerged: false, subPhase: Math.random() * Math.PI * 2 };
+}
+function makeFx(x, y, color) { return { x, y, color, r: 5, life: 0.4 }; }
+function makePop(x, y, text, color) { return { x, y, text, color, life: 0.9 }; }
+
+// ---------- Creature ----------
+const hopper = { x: START_X, y: START_HOP_Y, size: HOP, angle: 0, jumpT: 0, ridingDir: 0, ridingSpeed: 0, wing: 0 };
+const JUMP_DUR = 0.15;
+function hopCenter() { return { cx: hopper.x + hopper.size / 2, cy: hopper.y + hopper.size / 2 }; }
+function hopRect() { return { x: hopper.x, y: hopper.y, w: hopper.size, h: hopper.size }; }
+
+// ---------- Game state ----------
+const STATE = { TITLE: 0, PLAY: 1, DEAD: 2, WIN: 3 };
+let state = STATE.TITLE;
+let lives, score, crossings, difficulty, best = loadBest();
+let cars = [], plats = [], fx = [], pops = [];
+let furthestY, crossStartTime, deathFlash = 0, shake = 0, winTimer = 0;
+let recentDeaths = [];
+
+function resetHopper() {
+  hopper.x = START_X; hopper.y = START_HOP_Y; hopper.angle = 0;
+  hopper.jumpT = 0; hopper.ridingDir = 0; hopper.ridingSpeed = 0;
+  furthestY = START_HOP_Y; crossStartTime = performance.now();
+}
+function newGame() {
+  lives = 3; score = 0; crossings = 0; difficulty = 1.0;
+  cars = []; plats = []; fx = []; pops = []; recentDeaths = [];
+  for (const p of PODS) p.filled = false;
+  deathFlash = 0; shake = 0; winTimer = 0;
+  resetHopper(); state = STATE.PLAY;
+}
+function effectiveDifficulty() {
+  const now = performance.now();
+  recentDeaths = recentDeaths.filter(t => now - t < 12000);
+  const struggle = Math.min(recentDeaths.length, 3) * 0.12;
+  return Math.max(0.7, difficulty - struggle);
+}
+
+// ---------- Input (buffered) ----------
+const KEYS = {};
+let bufferedHop = null;
+function requestHop(dx, dy, angle) {
+  if (state !== STATE.PLAY) return;
+  if (hopper.jumpT > 0) { bufferedHop = { dx, dy, angle }; return; }
+  doHop(dx, dy, angle);
+}
+function doHop(dx, dy, angle) {
+  const nx = Math.max(0, Math.min(W - hopper.size, hopper.x + dx));
+  const ny = Math.max(0, Math.min(H - hopper.size, hopper.y + dy));
+  if (nx === hopper.x && ny === hopper.y) return;
+  hopper.x = nx; hopper.y = ny; hopper.angle = angle;
+  hopper.jumpT = JUMP_DUR; hopper.ridingDir = 0;
+  sndJump();
+}
+window.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (["arrowup","arrowdown","arrowleft","arrowright"," ","w","a","s","d"].includes(k)) e.preventDefault();
+  if (KEYS[k]) return;
+  KEYS[k] = true;
+  initAudio(); resumeAudio();
+  if (state === STATE.WIN) { if ((k === " " || k === "enter") && winTimer <= 0) nextWave(); return; }
+  if (state !== STATE.PLAY) { if (k === " " || k === "enter") newGame(); return; }
+  if (k === "arrowup" || k === "w")    requestHop(0, -STEP, 0);
+  else if (k === "arrowdown" || k === "s")  requestHop(0, STEP, 180);
+  else if (k === "arrowleft" || k === "a")  requestHop(-HOP_X, 0, 270);
+  else if (k === "arrowright" || k === "d") requestHop(HOP_X, 0, 90);
+}, { passive: false });
+window.addEventListener("keyup", (e) => { KEYS[e.key.toLowerCase()] = false; });
+canvas.addEventListener("pointerdown", () => { initAudio(); resumeAudio(); if (state !== STATE.PLAY) newGame(); });
+
+// ---------- Collision ----------
+function aabb(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+function sweptHit(car, prevX, fr) {
+  const minX = Math.min(prevX, car.x), maxX = Math.max(prevX, car.x) + car.w;
+  return aabb(fr, { x: minX, y: car.y, w: maxX - minX, h: car.h });
+}
+
+// ---------- Spawning ----------
+function trySpawn(lane, list, factory, dt) {
+  const inLane = list.filter(o => Math.abs((o.y + o.h / 2) - lane.y) < 1);
+  const diff = effectiveDifficulty();
+  const gap = lane.gap ? lane.gap / Math.sqrt(diff) : (170 / diff);
+  let blocked = false;
+  for (const o of inLane) {
+    if (lane.dir === 1 && o.x < gap) blocked = true;
+    if (lane.dir === -1 && o.x > W - gap - o.w) blocked = true;
+  }
+  const ratePerSec = (lane.gap ? 1.4 : 1.9) * Math.min(diff, 2.6);
+  if (!blocked && Math.random() < ratePerSec * dt) list.push(factory(lane));
+}
+
+// ---------- Outcomes ----------
+function die(splash) {
+  if (splash) sndSplash(); else sndHit();
+  fx.push(makeFx(hopCenter().cx, hopCenter().cy, splash ? "#7fd4ff" : "#ff5a1f"));
+  lives -= 1;
+  difficulty = Math.max(0.7, difficulty - 0.15);
+  recentDeaths.push(performance.now());
+  deathFlash = 0.25; shake = 0.35;
+  if (lives <= 0) { best = Math.max(best, score); saveBest(best); state = STATE.DEAD; }
+  else resetHopper();
+}
+function nearestOpenPod(cx) {
+  let bp = null, bd = 1e9;
+  for (const p of PODS) { if (p.filled) continue; const d = Math.abs(p.cx - cx); if (d < bd) { bd = d; bp = p; } }
+  return { pod: bp, dist: bd };
+}
+function reachGoal() {
+  const cx = hopCenter().cx;
+  const { pod, dist } = nearestOpenPod(cx);
+  if (!pod || dist > POD_W / 2 + 6) { die(false); return; }
+  pod.filled = true;
+  const elapsed = (performance.now() - crossStartTime) / 1000;
+  const speedBonus = Math.max(0, Math.round((6 - elapsed) * 60));
+  const gained = 200 + speedBonus + Math.round(difficulty * 50);
+  score += gained; crossings += 1; difficulty += 0.08;
+  sndPod();
+  fx.push(makeFx(pod.cx, GOAL_ROW, C.neon));
+  pops.push(makePop(pod.cx, GOAL_Y1 + 14, "+" + gained, C.gold));
+  if (speedBonus > 0) pops.push(makePop(pod.cx, GOAL_Y1 + 36, "FAST +" + speedBonus, C.neon));
+  if (PODS.every(p => p.filled)) {
+    score += 1000; best = Math.max(best, score); saveBest(best);
+    sndWin(); winTimer = 2.2; state = STATE.WIN;
+  } else resetHopper();
+}
+function nextWave() {
+  for (const p of PODS) p.filled = false;
+  cars = []; plats = []; fx = []; pops = [];
+  difficulty += 0.18;
+  resetHopper(); state = STATE.PLAY;
+}
+
+// ---------- Update ----------
+function update(dt) {
+  hopper.wing += dt * 18;
+  if (deathFlash > 0) deathFlash = Math.max(0, deathFlash - dt);
+  if (shake > 0) shake = Math.max(0, shake - dt);
+  advanceFx(dt);
+  if (state === STATE.WIN) { winTimer -= dt; return; }
+  if (state !== STATE.PLAY) return;
+
+  const diff = effectiveDifficulty();
+  if (hopper.jumpT > 0) {
+    hopper.jumpT = Math.max(0, hopper.jumpT - dt);
+    if (hopper.jumpT === 0 && bufferedHop) { const b = bufferedHop; bufferedHop = null; doHop(b.dx, b.dy, b.angle); }
+  }
+
+  for (const lane of ROAD_LANES) if (crossings >= lane.unlock) trySpawn(lane, cars, makeCar, dt);
+  for (const lane of STREAM_LANES) trySpawn(lane, plats, makePlatform, dt);
+
+  const fr = hopRect();
+  for (let i = cars.length - 1; i >= 0; i--) {
+    const car = cars[i];
+    const prevX = car.x;
+    car.x += car.base * diff * car.dir * dt;
+    if (car.x > W + 220 || car.x + car.w < -220) { cars.splice(i, 1); continue; }
+    if (sweptHit(car, prevX, fr)) { die(false); return; }
+    if (Math.abs((car.y + car.h / 2) - (fr.y + fr.h / 2)) < 26) {
+      const dx = (car.dir === 1) ? fr.x - (car.x + car.w) : car.x - (fr.x + fr.w);
+      if (dx > 0 && dx < 10 && !car._near) {
+        car._near = true; score += 5; sndNear();
+        pops.push(makePop(fr.x + fr.w / 2, fr.y - 6, "NEAR!", C.hot));
+      }
+    }
+  }
+
+  for (let i = plats.length - 1; i >= 0; i--) {
+    const p = plats[i];
+    p.x += p.base * diff * p.dir * dt;
+    if (p.x > W + 240 || p.x + p.w < -240) { plats.splice(i, 1); continue; }
+    if (p.type === "skimmer") {
+      p.diveTimer -= dt;
+      if (p.diveTimer <= 0) { p.submerged = !p.submerged; p.diveTimer = p.submerged ? 1.4 : (3 + Math.random() * 2); }
+    }
+  }
+
+  const fc = hopCenter();
+  const inStream = fc.cy > STREAM_Y0 && fc.cy < STREAM_Y1;
+  hopper.ridingDir = 0; hopper.ridingSpeed = 0;
+  if (inStream && hopper.jumpT <= 0) {
+    let on = false;
+    for (const p of plats) {
+      if (p.submerged) continue;
+      if (Math.abs((p.y + p.h / 2) - fc.cy) < 30 && fc.cx > p.x && fc.cx < p.x + p.w) {
+        on = true; hopper.ridingDir = p.dir; hopper.ridingSpeed = p.base; break;
+      }
+    }
+    if (!on) { die(true); return; }
+  }
+  if (hopper.ridingDir !== 0) {
+    hopper.x += hopper.ridingSpeed * diff * hopper.ridingDir * dt;
+    if (hopper.x < -hopper.size || hopper.x > W) { die(true); return; }
+    hopper.x = Math.max(0, Math.min(W - hopper.size, hopper.x));
+  }
+
+  if (fc.cy < GOAL_Y1) { reachGoal(); return; }
+
+  if (hopper.y < furthestY) {
+    score += Math.round((furthestY - hopper.y) / STEP) * 10;
+    furthestY = hopper.y;
+  }
+}
+function advanceFx(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) { const f = fx[i]; f.r += 90 * dt; f.life -= dt; if (f.life <= 0) fx.splice(i, 1); }
+  for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.y -= 22 * dt; p.life -= dt; if (p.life <= 0) pops.splice(i, 1); }
+}
+
+// ---------- Drawing helpers ----------
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function rotPoint(px, py, cx, cy, deg) {
+  const r = deg * Math.PI / 180;
+  return [cx + (px - cx) * Math.cos(r) - (py - cy) * Math.sin(r),
+          cy + (px - cx) * Math.sin(r) + (py - cy) * Math.cos(r)];
+}
+function poly(pts, fill) {
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+
+function drawZones(t) {
+  ctx.fillStyle = C.bank; ctx.fillRect(0, START_Y0, W, START_Y1 - START_Y0);
+  ctx.fillStyle = C.road; ctx.fillRect(0, ROAD_Y0, W, ROAD_Y1 - ROAD_Y0);
+  ctx.strokeStyle = C.laneMark; ctx.lineWidth = 3; ctx.setLineDash([22, 26]);
+  for (const lane of ROAD_LANES) {
+    ctx.globalAlpha = crossings < lane.unlock ? 0.22 : 1;
+    ctx.beginPath(); ctx.moveTo(0, lane.y + 25); ctx.lineTo(W, lane.y + 25); ctx.stroke();
+  }
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  ctx.fillStyle = C.bankHi; ctx.fillRect(0, MEDIAN_Y0, W, MEDIAN_Y1 - MEDIAN_Y0);
+  const grd = ctx.createLinearGradient(0, STREAM_Y0, 0, STREAM_Y1);
+  grd.addColorStop(0, C.streamHi); grd.addColorStop(1, C.stream);
+  ctx.fillStyle = grd; ctx.fillRect(0, STREAM_Y0, W, STREAM_Y1 - STREAM_Y0);
+  ctx.strokeStyle = "rgba(92,242,196,0.10)"; ctx.lineWidth = 2;
+  for (let i = 0; i < 7; i++) {
+    const y = STREAM_Y0 + 18 + i * 30;
+    const off = (t * 30 + i * 40) % (W + 80) - 40;
+    ctx.beginPath(); ctx.moveTo(off, y); ctx.lineTo(off + 26, y); ctx.stroke();
+  }
+  ctx.fillStyle = "#0c1830"; ctx.fillRect(0, GOAL_Y0, W, GOAL_Y1 - GOAL_Y0);
+  for (const pod of PODS) {
+    const x = pod.cx - POD_W / 2, y = GOAL_ROW - POD_H / 2;
+    if (pod.filled) {
+      const pulse = 0.6 + Math.sin(t * 4 + pod.cx) * 0.2;
+      ctx.save(); ctx.shadowColor = C.padGlow; ctx.shadowBlur = 18 * pulse;
+      ctx.fillStyle = C.pad; roundRect(x, y, POD_W, POD_H, 10); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 8;
+      ctx.fillStyle = C.hopMid; ctx.beginPath(); ctx.arc(pod.cx, GOAL_ROW, 7, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    } else {
+      ctx.strokeStyle = "rgba(92,242,196,0.5)"; ctx.lineWidth = 2;
+      roundRect(x, y, POD_W, POD_H, 10); ctx.stroke();
+      ctx.fillStyle = "rgba(92,242,196,0.07)"; roundRect(x, y, POD_W, POD_H, 10); ctx.fill();
+    }
+  }
+}
+
+function drawCar(car) {
+  ctx.save(); ctx.shadowColor = car.color; ctx.shadowBlur = 12;
+  ctx.fillStyle = car.color; roundRect(car.x, car.y, car.w, car.h, 7); ctx.fill(); ctx.restore();
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  const lw = 5, lx = car.dir === 1 ? car.x + car.w - lw - 3 : car.x + 3;
+  roundRect(lx, car.y + 6, lw, car.h - 12, 2); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  const ww = Math.min(20, car.w * 0.28), wx = car.dir === 1 ? car.x + car.w - ww - 10 : car.x + 10;
+  roundRect(wx, car.y + 7, ww, car.h - 14, 3); ctx.fill();
+}
+function drawPlatform(p, t) {
+  if (p.submerged) {
+    ctx.strokeStyle = "rgba(92,242,196,0.45)"; ctx.lineWidth = 2;
+    for (let u = 0; u < p.units; u++) {
+      const cx = p.x + u * p.unitW + p.unitW / 2, cy = p.y + p.h / 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 9 + (Math.sin(p.subPhase + u + t * 3) + 1) * 3, 0, Math.PI * 2); ctx.stroke();
+    }
+    return;
+  }
+  if (p.type === "drift") {
+    ctx.save(); ctx.shadowColor = C.drift; ctx.shadowBlur = 14;
+    ctx.fillStyle = C.drift; roundRect(p.x, p.y, p.w, p.h, 8); ctx.fill(); ctx.restore();
+    ctx.fillStyle = C.driftDk;
+    for (let u = 1; u < p.units; u++) ctx.fillRect(p.x + u * p.unitW - 1, p.y + 4, 2, p.h - 8);
+    ctx.fillStyle = "rgba(255,255,255,0.18)"; roundRect(p.x + 4, p.y + 4, p.w - 8, 6, 3); ctx.fill();
+  } else {
+    for (let u = 0; u < p.units; u++) {
+      const cx = p.x + u * p.unitW + p.unitW / 2, cy = p.y + p.h / 2;
+      ctx.save(); ctx.shadowColor = C.beetle; ctx.shadowBlur = 10;
+      ctx.fillStyle = C.beetleDk; ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.beetle; ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = "rgba(174,247,230,0.6)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+}
+
+// The original creature: a glowing "mothlet".
+function drawHopper() {
+  const { cx, cy } = hopCenter();
+  const ang = hopper.angle;
+  let anim = 1.0;
+  if (hopper.jumpT > 0) anim = 1.0 + Math.sin((1 - hopper.jumpT / JUMP_DUR) * Math.PI) * 0.4;
+  const R = (p) => rotPoint(p[0], p[1], cx, cy, ang);
+  const flutter = Math.sin(hopper.wing) * (hopper.jumpT > 0 ? 9 : 4);
+
+  ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 16;
+  for (const side of [-1, 1]) {
+    const wing = [[cx, cy - 2], [cx + (16 + flutter) * side, cy - 12 * anim],
+                  [cx + (20 + flutter) * side, cy + 4], [cx + 10 * side, cy + 8]];
+    poly(wing.map(R), side === 1 ? "rgba(110,224,196,0.85)" : "rgba(110,224,196,0.7)");
+    const wing2 = [[cx, cy + 2], [cx + (12 + flutter * 0.6) * side, cy + 10 * anim],
+                   [cx + (16 + flutter * 0.6) * side, cy + 18], [cx + 6 * side, cy + 12]];
+    poly(wing2.map(R), side === 1 ? "rgba(174,247,230,0.6)" : "rgba(174,247,230,0.5)");
+  }
+  ctx.restore();
+
+  const body = [[cx, cy - 16 * anim], [cx + 9, cy - 2], [cx + 6, cy + 14], [cx - 6, cy + 14], [cx - 9, cy - 2]];
+  ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 10;
+  poly(body.map(R), C.hopMid); ctx.restore();
+  poly([[cx, cy - 10 * anim], [cx + 5, cy], [cx, cy + 9], [cx - 5, cy]].map(R), C.hopLt);
+
+  ctx.strokeStyle = C.hopLt; ctx.lineWidth = 2;
+  for (const side of [-1, 1]) {
+    const a0 = R([cx + 3 * side, cy - 13 * anim]), a1 = R([cx + 8 * side, cy - 22 * anim]);
+    ctx.beginPath(); ctx.moveTo(a0[0], a0[1]); ctx.lineTo(a1[0], a1[1]); ctx.stroke();
+    const tip = R([cx + 8 * side, cy - 23 * anim]);
+    ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(tip[0], tip[1], 2.2, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const side of [-1, 1]) {
+    const e = R([cx + 3.5 * side, cy - 6 * anim]);
+    ctx.fillStyle = "#0a0a0a"; ctx.beginPath(); ctx.arc(e[0], e[1], 2.2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawFx() {
+  for (const f of fx) {
+    ctx.globalAlpha = Math.max(0, f.life / 0.4);
+    ctx.strokeStyle = f.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = "center"; ctx.font = "bold 15px 'Trebuchet MS', sans-serif";
+  for (const p of pops) { ctx.globalAlpha = Math.max(0, p.life / 0.9); ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y); }
+  ctx.globalAlpha = 1; ctx.textAlign = "left";
+}
+
+function drawHUD() {
+  ctx.font = "bold 18px 'Trebuchet MS', sans-serif";
+  ctx.fillStyle = C.txt; ctx.textAlign = "left";
+  ctx.fillText("SCORE " + score, 16, H - 48);
+  ctx.fillText("PODS " + PODS.filter(p => p.filled).length + "/" + NUM_PODS, 16, H - 24);
+  ctx.textAlign = "right";
+  ctx.fillText("x" + effectiveDifficulty().toFixed(1), W - 16, H - 48);
+  ctx.fillStyle = "rgba(231,246,239,0.6)"; ctx.font = "13px 'Trebuchet MS', sans-serif";
+  ctx.fillText("BEST " + best, W - 16, H - 26);
+  for (let i = 0; i < lives; i++) {
+    const lx = W - 22 - i * 22, ly = H - 64;
+    ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 8;
+    ctx.fillStyle = C.hopMid; ctx.beginPath(); ctx.arc(lx, ly, 6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+  ctx.textAlign = "left";
+}
+
+function centerText(lines) {
+  ctx.textAlign = "center";
+  for (const L of lines) {
+    ctx.fillStyle = L.color || C.txt;
+    ctx.font = L.font || "16px 'Trebuchet MS', sans-serif";
+    ctx.globalAlpha = L.alpha == null ? 1 : L.alpha;
+    ctx.fillText(L.t, W / 2, L.y);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = "left";
+}
+function drawTitle(t) {
+  ctx.fillStyle = "rgba(6,8,18,0.74)"; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 24;
+  centerText([{ t: "GLOWHOP", y: 220, color: C.neon, font: "bold 60px 'Trebuchet MS', sans-serif" }]);
+  ctx.restore();
+  const blink = (Math.sin(t * 3.3) + 1) / 2;
+  centerText([
+    { t: "NEON CROSSING", y: 252, color: C.gold, font: "14px 'Trebuchet MS', sans-serif" },
+    { t: "PRESS SPACE TO START", y: 372, color: C.gold, font: "bold 20px 'Trebuchet MS', sans-serif", alpha: 0.4 + blink * 0.6 },
+    { t: "Guide the mothlet across the highway and energy stream.", y: 432, color: "rgba(231,246,239,0.8)", font: "14px 'Trebuchet MS', sans-serif" },
+    { t: "Land in all 5 glowing pods to clear a wave.", y: 456, color: "rgba(231,246,239,0.8)", font: "14px 'Trebuchet MS', sans-serif" },
+    { t: "Each pod makes traffic faster & denser. 3 lives.", y: 480, color: "rgba(231,246,239,0.8)", font: "14px 'Trebuchet MS', sans-serif" },
+    { t: "Arrow keys / WASD to hop · best on desktop", y: 524, color: "rgba(231,246,239,0.55)", font: "13px 'Trebuchet MS', sans-serif" },
+  ]);
+  hopper.wing = t * 14;
+  const sx = W / 2, sy = 300 + Math.sin(t * 1.5) * 6;
+  ctx.save(); ctx.translate(sx - (hopper.x + 15), sy - (hopper.y + 15)); drawHopper(); ctx.restore();
+}
+function drawDead(t) {
+  ctx.fillStyle = "rgba(6,8,18,0.78)"; ctx.fillRect(0, 0, W, H);
+  const blink = (Math.sin(t * 3.3) + 1) / 2;
+  ctx.save(); ctx.shadowColor = C.hot; ctx.shadowBlur = 20;
+  centerText([{ t: "WIPEOUT", y: 250, color: C.hot, font: "bold 54px 'Trebuchet MS', sans-serif" }]);
+  ctx.restore();
+  centerText([
+    { t: "Score  " + score, y: 314, color: C.txt, font: "bold 24px 'Trebuchet MS', sans-serif" },
+    { t: "Pods cleared  " + PODS.filter(p => p.filled).length + "/" + NUM_PODS, y: 350, color: C.txt, font: "bold 20px 'Trebuchet MS', sans-serif" },
+    { t: "Best  " + best, y: 392, color: C.gold, font: "18px 'Trebuchet MS', sans-serif" },
+    { t: "PRESS SPACE TO PLAY AGAIN", y: 470, color: C.txt, font: "bold 20px 'Trebuchet MS', sans-serif", alpha: 0.4 + blink * 0.6 },
+  ]);
+}
+function drawWin(t) {
+  ctx.fillStyle = "rgba(6,8,18,0.72)"; ctx.fillRect(0, 0, W, H);
+  const blink = (Math.sin(t * 3.3) + 1) / 2;
+  ctx.save(); ctx.shadowColor = C.neon; ctx.shadowBlur = 26;
+  centerText([{ t: "WAVE CLEARED!", y: 250, color: C.neon, font: "bold 46px 'Trebuchet MS', sans-serif" }]);
+  ctx.restore();
+  centerText([
+    { t: "+1000 wave bonus", y: 300, color: C.gold, font: "bold 22px 'Trebuchet MS', sans-serif" },
+    { t: "Score  " + score, y: 344, color: C.txt, font: "bold 24px 'Trebuchet MS', sans-serif" },
+    { t: winTimer > 0 ? "Next wave incoming…" : "PRESS SPACE TO CONTINUE", y: 470, color: C.txt, font: "bold 20px 'Trebuchet MS', sans-serif", alpha: 0.4 + blink * 0.6 },
+  ]);
+}
+
+// ---------- Render ----------
+function render(t) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (shake > 0) { const m = shake * 14; ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m); }
+  drawZones(t);
+  for (const p of plats) drawPlatform(p, t);
+  for (const car of cars) drawCar(car);
+  drawFx();
+  if (state === STATE.PLAY || state === STATE.DEAD) drawHopper();
+  if (deathFlash > 0) { ctx.fillStyle = "rgba(255,70,90," + (deathFlash / 0.25 * 0.4) + ")"; ctx.fillRect(-30, -30, W + 60, H + 60); }
+  ctx.restore();
+  if (state === STATE.PLAY || state === STATE.DEAD || state === STATE.WIN) drawHUD();
+  if (state === STATE.TITLE) drawTitle(t);
+  if (state === STATE.DEAD)  drawDead(t);
+  if (state === STATE.WIN)   drawWin(t);
+}
+
+// ---------- Loop ----------
+const DT = 1 / 120;
+let acc = 0, last = performance.now(), tSec = 0;
+function frame(now) {
+  let elapsed = (now - last) / 1000; last = now;
+  if (elapsed > 0.25) elapsed = 0.25;
+  tSec += elapsed; acc += elapsed;
+  let guard = 0;
+  while (acc >= DT && guard < 600) { update(DT); acc -= DT; guard++; }
+  // auto-advance from WIN after the celebration, on next space (handled in keydown) OR after timer + space
+  render(tSec);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// Test hooks for automated playtesting
+window.__GLOWHOP = {
+  get state(){return state}, STATE,
+  get score(){return score}, get lives(){return lives}, get crossings(){return crossings},
+  get pods(){return PODS.filter(p=>p.filled).length},
+  get hopperY(){return hopper.y}, get cars(){return cars.length}, get plats(){return plats.length},
+  start(){ newGame(); }, hop(dx,dy,a){ requestHop(dx,dy,a); },
+  STEP, HOP_X,
+};
+// Debug geometry probe (used only by automated playtests; harmless otherwise)
+window.__GLOWHOP_DBG = function () {
+  return {
+    state, lives, score, podCount: PODS.filter(p => p.filled).length,
+    hop: { x: hopper.x, y: hopper.y, cx: hopCenter().cx, cy: hopCenter().cy, jumpT: hopper.jumpT },
+    zones: { GOAL_Y1, STREAM_Y0, STREAM_Y1, MEDIAN_Y0, MEDIAN_Y1, ROAD_Y0, ROAD_Y1, START_HOP_Y, STEP, HOP_X, HOP },
+    pods: PODS.map(p => ({ cx: p.cx, filled: p.filled })),
+    cars: cars.map(c => ({ x: c.x, y: c.y + c.h / 2, w: c.w, dir: c.dir })),
+    plats: plats.map(p => ({ x: p.x, y: p.y + p.h / 2, w: p.w, dir: p.dir, sub: p.submerged })),
+    eff: effectiveDifficulty(),
+  };
+};
+
+})();
+</script>
+</body>
+</html>

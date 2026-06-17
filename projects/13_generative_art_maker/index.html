@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Atelier — Generative Art Maker</title>
+<style>
+  :root{
+    --panel-bg: rgba(18,18,22,0.72);
+    --panel-border: rgba(255,255,255,0.10);
+    --txt: #ECECEC;
+    --txt-dim: #9a9aa2;
+    --ctrl-bg: rgba(255,255,255,0.06);
+    --ctrl-bg-hover: rgba(255,255,255,0.12);
+    --accent: #7fb2ad;
+    --bg: #0e0e10;
+  }
+  body.light{
+    --panel-bg: rgba(250,249,245,0.78);
+    --panel-border: rgba(0,0,0,0.08);
+    --txt: #1a1a1c;
+    --txt-dim: #6a6a72;
+    --ctrl-bg: rgba(0,0,0,0.05);
+    --ctrl-bg-hover: rgba(0,0,0,0.10);
+    --bg: #f5f3ee;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--bg);
+    transition: background-color .45s ease; }
+  body{ font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  #art{ position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+
+  /* ---- Control panel ---- */
+  #panel{
+    position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+    z-index:10; display:flex; flex-direction:column; gap:12px;
+    padding:14px 16px;
+    width:min(640px, calc(100vw - 24px));
+    background:var(--panel-bg); color:var(--txt);
+    border:1px solid var(--panel-border); border-radius:16px;
+    backdrop-filter:blur(18px) saturate(1.2); -webkit-backdrop-filter:blur(18px) saturate(1.2);
+    box-shadow:0 10px 40px rgba(0,0,0,0.28);
+    transition: opacity .3s ease, transform .3s ease, background-color .45s ease, color .45s ease, border-color .45s ease;
+  }
+  #panel.hidden{ opacity:0; transform:translateX(-50%) translateY(20px); pointer-events:none; }
+  .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .row.between{ justify-content:space-between; }
+  .label{ font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--txt-dim);
+    min-width:46px; }
+  .seg{ display:flex; gap:4px; background:var(--ctrl-bg); padding:4px; border-radius:11px; }
+  .seg button{ border:0; background:transparent; color:var(--txt-dim);
+    font-size:12px; letter-spacing:.04em; padding:7px 12px; border-radius:8px; cursor:pointer;
+    transition:background-color .18s ease, color .18s ease; font-weight:500; }
+  .seg button:hover{ color:var(--txt); }
+  .seg button.on{ background:var(--accent); color:#0c0c0e; font-weight:600; }
+  body.light .seg button.on{ color:#fafaf7; }
+
+  .swatches{ display:flex; gap:7px; }
+  .sw{ width:24px; height:24px; border-radius:50%; cursor:pointer; border:2px solid transparent;
+    background-size:cover; position:relative; transition:transform .15s ease, border-color .15s ease; }
+  .sw:hover{ transform:scale(1.12); }
+  .sw.on{ border-color:var(--txt); }
+
+  input[type=range]{ -webkit-appearance:none; appearance:none; height:4px; border-radius:4px;
+    background:var(--ctrl-bg); flex:1; min-width:90px; cursor:pointer; outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--bg); cursor:pointer; transition:transform .12s ease; }
+  input[type=range]::-webkit-slider-thumb:hover{ transform:scale(1.15); }
+  input[type=range]::-moz-range-thumb{ width:15px; height:15px; border-radius:50%; background:var(--accent);
+    border:2px solid var(--bg); cursor:pointer; }
+  .val{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:11px;
+    color:var(--txt-dim); min-width:34px; text-align:right; }
+
+  .btn{ border:1px solid var(--panel-border); background:var(--ctrl-bg); color:var(--txt);
+    font-size:12px; letter-spacing:.05em; padding:8px 14px; border-radius:9px; cursor:pointer;
+    transition:background-color .18s ease; font-weight:500; white-space:nowrap; }
+  .btn:hover{ background:var(--ctrl-bg-hover); }
+  .btn.primary{ background:var(--accent); color:#0c0c0e; border-color:transparent; font-weight:600; }
+  body.light .btn.primary{ color:#fafaf7; }
+  .btn.icon{ padding:8px 10px; }
+
+  .axes-wrap{ transition:opacity .2s ease, max-width .2s ease; overflow:hidden; }
+  .axes-wrap.off{ opacity:.35; }
+
+  #title{ position:fixed; top:16px; left:18px; z-index:9; color:var(--txt);
+    font-size:11px; letter-spacing:.28em; text-transform:uppercase; opacity:.55;
+    transition:color .45s ease; user-select:none; pointer-events:none; }
+  #hint{ position:fixed; top:16px; right:18px; z-index:9; color:var(--txt-dim);
+    font-size:11px; letter-spacing:.04em; opacity:.7; transition:opacity .4s ease, color .45s ease;
+    user-select:none; pointer-events:none; }
+  #hint.gone{ opacity:0; }
+  #fps{ font-family:ui-monospace,monospace; }
+
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  @media (max-width:560px){
+    #panel{ bottom:10px; padding:12px; gap:10px; }
+    .label{ min-width:auto; }
+    .seg button{ padding:7px 9px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ transition-duration:.001ms !important; }
+  }
+</style>
+</head>
+<body class="">
+  <canvas id="art" aria-label="Generative artwork canvas"></canvas>
+  <div id="title">Atelier</div>
+  <div id="hint">Click & drag to paint · <kbd>H</kbd> hides panel</div>
+
+  <div id="panel" role="region" aria-label="Artwork controls">
+    <div class="row between">
+      <div class="seg" role="tablist" aria-label="Mode">
+        <button data-mode="flow" class="on" role="tab" aria-selected="true">Flow Field</button>
+        <button data-mode="kaleido" role="tab" aria-selected="false">Kaleidoscope</button>
+        <button data-mode="particle" role="tab" aria-selected="false">Particles</button>
+      </div>
+      <span class="label" style="min-width:auto">FPS&nbsp;<span id="fps" class="val">—</span></span>
+    </div>
+
+    <div class="row">
+      <span class="label">Palette</span>
+      <div class="swatches" id="swatches" role="radiogroup" aria-label="Color palette"></div>
+    </div>
+
+    <div class="row">
+      <span class="label">Brush</span>
+      <input id="brush" type="range" min="0" max="1" step="0.01" value="0.45" aria-label="Brush size and strength">
+      <span class="val" id="brushVal">45%</span>
+      <span class="axes-wrap row" id="axesWrap" style="gap:8px; margin-left:6px;">
+        <span class="label" style="min-width:auto">Axes</span>
+        <input id="axes" type="range" min="2" max="16" step="1" value="8" aria-label="Symmetry axes" style="min-width:70px;">
+        <span class="val" id="axesVal">8</span>
+      </span>
+    </div>
+
+    <div class="row between">
+      <div class="seg" role="group" aria-label="Background">
+        <button id="bgDark" class="on">Dark</button>
+        <button id="bgLight">Light</button>
+      </div>
+      <div class="row" style="gap:8px;">
+        <button class="btn" id="clearBtn">Clear</button>
+        <button class="btn primary" id="dlBtn">Download</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+(function(){
+  /* ============================ Perlin noise ============================ */
+  const Noise = (function(){
+    const p = new Uint8Array(512), perm = [];
+    for(let i=0;i<256;i++) perm[i]=i;
+    let s = 998877;
+    const rng = ()=>{ s=(s*16807)%2147483647; return (s-1)/2147483646; };
+    for(let i=255;i>0;i--){ const j=(rng()*(i+1))|0; const t=perm[i]; perm[i]=perm[j]; perm[j]=t; }
+    for(let i=0;i<512;i++) p[i]=perm[i&255];
+    const fade=t=>t*t*t*(t*(t*6-15)+10);
+    const lerp=(a,b,t)=>a+t*(b-a);
+    const grad=(h,x,y,z)=>{ h&=15; const u=h<8?x:y, v=h<4?y:(h===12||h===14?x:z);
+      return ((h&1)===0?u:-u)+((h&2)===0?v:-v); };
+    return function(x,y,z){
+      const X=Math.floor(x)&255, Y=Math.floor(y)&255, Z=Math.floor(z)&255;
+      x-=Math.floor(x); y-=Math.floor(y); z-=Math.floor(z);
+      const u=fade(x), v=fade(y), w=fade(z);
+      const A=p[X]+Y, AA=p[A]+Z, AB=p[A+1]+Z, B=p[X+1]+Y, BA=p[B]+Z, BB=p[B+1]+Z;
+      return lerp(
+        lerp(lerp(grad(p[AA],x,y,z),   grad(p[BA],x-1,y,z),  u),
+             lerp(grad(p[AB],x,y-1,z), grad(p[BB],x-1,y-1,z),u), v),
+        lerp(lerp(grad(p[AA+1],x,y,z-1),   grad(p[BA+1],x-1,y,z-1),  u),
+             lerp(grad(p[AB+1],x,y-1,z-1), grad(p[BB+1],x-1,y-1,z-1),u), v), w);
+    };
+  })();
+
+  /* ============================ Palettes ============================ */
+  const PALETTES = [
+    { name:"Tidewater", accent:"#7fb2ad", colors:["#163f4e","#3e7a82","#7fb2ad","#cbd6cf","#e0b07c"] },
+    { name:"Ember",     accent:"#d97b3a", colors:["#5a1f1a","#a8431f","#d97b3a","#e8b04b","#f0d9a8"] },
+    { name:"Botanica",  accent:"#8a9a5b", colors:["#2f3b22","#5c6b3a","#8a9a5b","#c2c8a0","#e7e3cf"] },
+    { name:"Nocturne",  accent:"#b78fce", colors:["#241f4a","#4a3b78","#7b5ea7","#b78fce","#e6c6e0"] },
+    { name:"Graphite",  accent:"#9a9ca2", colors:["#17181b","#45474d","#7c7e85","#b3b4b8","#e3e2df"] },
+  ];
+
+  /* ============================ State ============================ */
+  const cfg = { mode:"flow", palette:0, brush:0.45, axes:8, dark:true };
+
+  const canvas = document.getElementById("art");
+  const ctx = canvas.getContext("2d", { alpha:true });
+  let BW=0, BH=0;                 // buffer (internal) dimensions
+  const MAX_LONG = 4096;          // safety ceiling only (prevents huge-display crashes)
+  const cappedDPR = window.devicePixelRatio || 1;  // full native density; FPS throttle handles load
+
+  // hex -> {r,g,b}
+  function hx(h){ h=h.replace('#',''); return { r:parseInt(h.slice(0,2),16), g:parseInt(h.slice(2,4),16), b:parseInt(h.slice(4,6),16) }; }
+  function rgba(c,a){ return `rgba(${c.r},${c.g},${c.b},${a})`; }
+  let RGB = PALETTES[0].colors.map(hx);
+  function pick(){ return RGB[(Math.random()*RGB.length)|0]; }
+
+  /* ---- sizing ---- */
+  function targetSize(){
+    const w=window.innerWidth, h=window.innerHeight;
+    const longEdge = Math.min(Math.max(w,h) * cappedDPR, MAX_LONG);
+    const scale = longEdge / Math.max(w,h);
+    return { w: Math.max(1, Math.round(w*scale)), h: Math.max(1, Math.round(h*scale)) };
+  }
+  function resize(preserve){
+    const t = targetSize();
+    if(t.w===BW && t.h===BH) return;
+    let old=null;
+    if(preserve && BW>0){
+      old=document.createElement("canvas"); old.width=BW; old.height=BH;
+      old.getContext("2d").drawImage(canvas,0,0);
+    }
+    BW=t.w; BH=t.h; canvas.width=BW; canvas.height=BH;
+    ctx.lineCap="round"; ctx.lineJoin="round";
+    if(old){
+      // preserve existing art, rescaled to new aspect (cover)
+      const s=Math.max(BW/old.width, BH/old.height);
+      const dw=old.width*s, dh=old.height*s;
+      ctx.drawImage(old, (BW-dw)/2, (BH-dh)/2, dw, dh);
+    }
+  }
+
+  /* ---- pointer mapping ---- */
+  const ptr = { x:0, y:0, px:0, py:0, vx:0, vy:0, down:false, active:false };
+  function toBuffer(e){
+    const r=canvas.getBoundingClientRect();
+    ptr.px = ptr.x; ptr.py = ptr.y;
+    ptr.x = (e.clientX - r.left) / r.width  * BW;
+    ptr.y = (e.clientY - r.top)  / r.height * BH;
+    ptr.vx = ptr.x - ptr.px; ptr.vy = ptr.y - ptr.py;
+  }
+  canvas.addEventListener("pointerdown", e=>{
+    canvas.setPointerCapture(e.pointerId);
+    toBuffer(e); ptr.px=ptr.x; ptr.py=ptr.y; ptr.vx=0; ptr.vy=0;
+    ptr.down=true; ptr.active=true;
+    if(cfg.mode==="kaleido"){ kaleidoLast=null; }
+    hideHint();
+  });
+  canvas.addEventListener("pointermove", e=>{
+    toBuffer(e); ptr.active=true;
+    if(cfg.mode==="kaleido" && ptr.down) kaleidoStroke();
+    if(cfg.mode==="particle" && ptr.down) emitParticles();
+  });
+  function up(){ ptr.down=false; kaleidoLast=null; }
+  canvas.addEventListener("pointerup", up);
+  canvas.addEventListener("pointercancel", up);
+  canvas.addEventListener("pointerleave", ()=>{ ptr.active = ptr.down; });
+
+  /* ============================ Mode: Flow Field ============================ */
+  let flow = [];
+  let flowCount = 2200;
+  const FLOW_SCALE = 0.0016;
+  let tNoise = 0;
+
+  function flowSpawn(n){
+    for(let i=0;i<n;i++){
+      flow.push({ x:Math.random()*BW, y:Math.random()*BH, c:pick(),
+        life:60+Math.random()*220|0 });
+    }
+  }
+  function flowInit(){ flow.length=0; flowSpawn(flowCount); }
+
+  function flowTick(){
+    tNoise += 0.0009;
+    const lw = 0.6 + cfg.brush*3.2;
+    const alpha = 0.045 + cfg.brush*0.03;
+    const speed = 0.9 + cfg.brush*1.6;
+    const cx=ptr.x, cy=ptr.y, infl=120 + cfg.brush*260;
+    const seeding = ptr.down;
+    ctx.lineWidth = lw; ctx.lineCap = "butt";   // butt caps: segments meet flush, no beading
+    for(let i=0;i<flow.length;i++){
+      const f=flow[i];
+      let ang = Noise(f.x*FLOW_SCALE, f.y*FLOW_SCALE, tNoise) * Math.PI * 3.0;
+      let dx=Math.cos(ang), dy=Math.sin(ang);
+      if(seeding){
+        const ox=f.x-cx, oy=f.y-cy, d=Math.hypot(ox,oy);
+        if(d<infl && d>0.001){
+          const w=(1-d/infl);
+          // swirl tangentially around cursor
+          dx += (-oy/d)*w*2.2; dy += (ox/d)*w*2.2;
+          const m=Math.hypot(dx,dy)||1; dx/=m; dy/=m;
+        }
+      }
+      const nx=f.x+dx*speed*2.0, ny=f.y+dy*speed*2.0;
+      if(nx===nx && ny===ny){ // NaN guard
+        ctx.strokeStyle = rgba(f.c, alpha);
+        ctx.beginPath(); ctx.moveTo(f.x,f.y); ctx.lineTo(nx,ny); ctx.stroke();
+        f.x=nx; f.y=ny;
+      }
+      f.life--;
+      if(f.life<=0 || f.x<-20||f.x>BW+20||f.y<-20||f.y>BH+20){
+        f.x = seeding && Math.random()<0.5 ? cx+(Math.random()-0.5)*infl : Math.random()*BW;
+        f.y = seeding && Math.random()<0.5 ? cy+(Math.random()-0.5)*infl : Math.random()*BH;
+        f.c = pick(); f.life = 60+Math.random()*220|0;
+      }
+    }
+  }
+
+  /* ============================ Mode: Kaleidoscope ============================ */
+  let kaleidoLast=null, kColor=0, kAccum=0;
+  function kaleidoStroke(){
+    const cx=BW/2, cy=BH/2;
+    if(!kaleidoLast){ kaleidoLast={x:ptr.x,y:ptr.y}; return; }
+    const ax=cfg.axes, lw=2+cfg.brush*24;
+    kAccum += Math.hypot(ptr.x-kaleidoLast.x, ptr.y-kaleidoLast.y);
+    if(kAccum>40){ kColor=(kColor+1)%RGB.length; kAccum=0; }
+    const c=RGB[kColor];
+    ctx.strokeStyle = rgba(c, 0.85); ctx.lineWidth=lw; ctx.lineCap="round";
+    const x1=kaleidoLast.x-cx, y1=kaleidoLast.y-cy, x2=ptr.x-cx, y2=ptr.y-cy;
+    ctx.save(); ctx.translate(cx,cy);
+    for(let k=0;k<ax;k++){
+      ctx.save(); ctx.rotate(k*2*Math.PI/ax);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.scale(1,-1); // mirror reflection for true mandala symmetry
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+    kaleidoLast={x:ptr.x,y:ptr.y};
+  }
+
+  /* ============================ Mode: Particle Painter ============================ */
+  let parts=[];
+  let PART_CAP = 2400;
+  function emitParticles(){
+    const rate = 2 + (cfg.brush*9|0);
+    const base = 1.5 + cfg.brush*7;
+    const spd = Math.hypot(ptr.vx,ptr.vy);
+    for(let i=0;i<rate;i++){
+      if(parts.length>=PART_CAP) break;
+      const a=Math.random()*Math.PI*2, j=Math.random()*spd*0.6+Math.random()*2.4;
+      parts.push({
+        x:ptr.x+(Math.random()-0.5)*base*2, y:ptr.y+(Math.random()-0.5)*base*2,
+        vx:ptr.vx*0.35+Math.cos(a)*j, vy:ptr.vy*0.35+Math.sin(a)*j,
+        px:ptr.x, py:ptr.y, life:1, decay:0.006+Math.random()*0.02,
+        c:pick(), r:base*(0.5+Math.random())
+      });
+    }
+  }
+  function particleTick(){
+    const grav=0.045, drag=0.985;
+    ctx.lineCap="round";
+    for(let i=parts.length-1;i>=0;i--){
+      const q=parts[i];
+      q.px=q.x; q.py=q.y;
+      q.vy+=grav; q.vx*=drag; q.vy*=drag;
+      q.x+=q.vx; q.y+=q.vy; q.life-=q.decay;
+      if(q.life<=0 || q.x!==q.x || q.y!==q.y){ parts.splice(i,1); continue; }
+      ctx.strokeStyle = rgba(q.c, q.life*0.5);
+      ctx.lineWidth = q.r*q.life;
+      ctx.beginPath(); ctx.moveTo(q.px,q.py); ctx.lineTo(q.x,q.y); ctx.stroke();
+    }
+  }
+
+  /* ============================ Loop + adaptive throttle ============================ */
+  let last=performance.now(), fpsAcc=0, fpsN=0, fpsShown=0, lastDrop=0;
+  const fpsEl=document.getElementById("fps");
+  function loop(now){
+    const dt=now-last; last=now;
+    const fps = dt>0 ? 1000/dt : 60;
+    fpsAcc+=fps; fpsN++;
+    if(fpsN>=20){ fpsShown=Math.round(fpsAcc/fpsN); fpsAcc=0; fpsN=0; fpsEl.textContent=fpsShown; }
+
+    // adaptive: ease counts down if struggling, recover when smooth
+    if(fpsShown && fpsShown<45 && now-lastDrop>800){
+      flowCount=Math.max(700, flowCount-200);
+      PART_CAP=Math.max(800, PART_CAP-300);
+      if(flow.length>flowCount) flow.length=flowCount;
+      lastDrop=now;
+    } else if(fpsShown>=58 && now-lastDrop>2000){
+      flowCount=Math.min(2600, flowCount+120);
+      PART_CAP=Math.min(2600, PART_CAP+150);
+      if(cfg.mode==="flow" && flow.length<flowCount) flowSpawn(flowCount-flow.length);
+      lastDrop=now;
+    }
+
+    if(cfg.mode==="flow") flowTick();
+    else if(cfg.mode==="particle") particleTick();
+    // kaleido draws on pointer events only
+
+    requestAnimationFrame(loop);
+  }
+
+  /* ============================ Background ============================ */
+  function applyBg(){
+    document.body.classList.toggle("light", !cfg.dark);
+    // panel accent follows palette
+    document.documentElement.style.setProperty("--accent", PALETTES[cfg.palette].accent);
+  }
+
+  /* ============================ Clear ============================ */
+  function clearArt(){ ctx.clearRect(0,0,BW,BH); parts.length=0; if(cfg.mode==="flow") flowInit(); }
+
+  /* ============================ Export ============================ */
+  function download(){
+    // export the buffer at its native resolution — no upscaling, ever.
+    // canvas is transparent, so composite over the background colour first.
+    const comp=document.createElement("canvas"); comp.width=BW; comp.height=BH;
+    const cc=comp.getContext("2d");
+    cc.fillStyle = cfg.dark ? "#0e0e10" : "#f5f3ee";
+    cc.fillRect(0,0,BW,BH);
+    cc.drawImage(canvas,0,0);
+    const url=comp.toDataURL("image/jpeg",0.92);
+    const a=document.createElement("a");
+    a.href=url; a.download=`atelier-${PALETTES[cfg.palette].name.toLowerCase()}-${Date.now()}.jpg`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  /* ============================ UI wiring ============================ */
+  const swEl=document.getElementById("swatches");
+  PALETTES.forEach((p,i)=>{
+    const b=document.createElement("button");
+    b.className="sw"+(i===0?" on":""); b.setAttribute("role","radio");
+    b.setAttribute("aria-checked", i===0?"true":"false");
+    b.title=p.name; b.style.background=`linear-gradient(135deg, ${p.colors[1]}, ${p.colors[2]} 50%, ${p.colors[4]})`;
+    b.addEventListener("click",()=>{
+      cfg.palette=i; RGB=p.colors.map(hx);
+      swEl.querySelectorAll(".sw").forEach((s,j)=>{ s.classList.toggle("on",j===i); s.setAttribute("aria-checked",j===i); });
+      applyBg();
+    });
+    swEl.appendChild(b);
+  });
+
+  const seg=document.querySelector(".seg[role=tablist]");
+  function setMode(m){
+    cfg.mode=m;
+    seg.querySelectorAll("button").forEach(b=>{
+      const on=b.dataset.mode===m; b.classList.toggle("on",on); b.setAttribute("aria-selected",on);
+    });
+    document.getElementById("axesWrap").classList.toggle("off", m!=="kaleido");
+    if(m==="flow" && flow.length===0) flowInit();
+  }
+  seg.querySelectorAll("button").forEach(b=> b.addEventListener("click",()=>setMode(b.dataset.mode)));
+
+  const brush=document.getElementById("brush"), brushVal=document.getElementById("brushVal");
+  brush.addEventListener("input",()=>{ cfg.brush=+brush.value; brushVal.textContent=Math.round(cfg.brush*100)+"%"; });
+  const axes=document.getElementById("axes"), axesVal=document.getElementById("axesVal");
+  axes.addEventListener("input",()=>{ cfg.axes=+axes.value; axesVal.textContent=axes.value; });
+
+  document.getElementById("bgDark").addEventListener("click",()=>{ cfg.dark=true;
+    document.getElementById("bgDark").classList.add("on"); document.getElementById("bgLight").classList.remove("on"); applyBg(); });
+  document.getElementById("bgLight").addEventListener("click",()=>{ cfg.dark=false;
+    document.getElementById("bgLight").classList.add("on"); document.getElementById("bgDark").classList.remove("on"); applyBg(); });
+
+  document.getElementById("clearBtn").addEventListener("click", clearArt);
+  document.getElementById("dlBtn").addEventListener("click", download);
+
+  // keyboard
+  const panel=document.getElementById("panel");
+  window.addEventListener("keydown", e=>{
+    if(e.target.tagName==="INPUT") return;
+    const k=e.key.toLowerCase();
+    if(k==="h") panel.classList.toggle("hidden");
+    else if(k==="1") setMode("flow");
+    else if(k==="2") setMode("kaleido");
+    else if(k==="3") setMode("particle");
+    else if(k==="c") clearArt();
+  });
+
+  const hintEl=document.getElementById("hint");
+  let hintTimer=setTimeout(hideHint, 6000);
+  function hideHint(){ hintEl.classList.add("gone"); clearTimeout(hintTimer); }
+
+  window.addEventListener("resize", ()=>resize(true));
+
+  /* ============================ Boot ============================ */
+  resize(false);
+  applyBg();
+  flowInit();
+  setMode("flow");
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

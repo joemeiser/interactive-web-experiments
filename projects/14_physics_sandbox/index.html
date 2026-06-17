@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>2D Physics Sandbox</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0e1117; }
+  canvas { display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+
+  #ui {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    pointer-events: none;
+  }
+  #ui .group { display: flex; align-items: center; gap: 6px; pointer-events: auto; }
+  #ui .spacer { flex: 1 1 auto; }
+
+  /* scale control, top-left */
+  #scaleBox {
+    display: flex; align-items: center; gap: 8px; pointer-events: auto;
+    background: rgba(30,37,48,0.85); border: 1px solid #2d3340; border-radius: 9px;
+    padding: 7px 12px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    color: #c9d1d9; font-size: 13px; font-weight: 600;
+  }
+  #scaleBox input[type=range] { width: 120px; accent-color: #2f6feb; cursor: pointer; }
+  #scaleVal { min-width: 34px; text-align: right; color: #79c0ff; }
+
+  button {
+    font: inherit; font-size: 14px; font-weight: 600; color: #c9d1d9;
+    background: rgba(30,37,48,0.85); border: 1px solid #2d3340; border-radius: 9px;
+    padding: 9px 13px; cursor: pointer; backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px); transition: background .12s, border-color .12s, color .12s;
+    touch-action: manipulation;
+  }
+  button:hover { background: rgba(45,55,70,0.9); }
+  button:active { transform: translateY(1px); }
+  button.mode.active { background: #2f6feb; border-color: #2f6feb; color: #fff; }
+  button.action { background: rgba(30,37,48,0.7); }
+
+  #hint {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 10;
+    font-family: system-ui, sans-serif; font-size: 13px; color: #8b949e;
+    background: rgba(20,26,34,0.7); border: 1px solid #2d3340; border-radius: 20px;
+    padding: 8px 16px; pointer-events: none; backdrop-filter: blur(6px);
+    transition: opacity .6s; white-space: nowrap;
+  }
+  #hint.hide { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="scaleBox">
+    <span>Scale</span>
+    <input type="range" id="scale" min="0.5" max="3" step="0.1" value="1.5">
+    <span id="scaleVal">1.5×</span>
+  </div>
+  <div class="group">
+    <button class="mode" data-mode="chains">Chains</button>
+    <button class="mode" data-mode="dominoes">Dominoes</button>
+    <button class="mode" data-mode="ragdolls">Ragdolls</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <button class="action" id="reset">Reset</button>
+    <button class="action" id="drop">Drop more</button>
+    <button class="action" id="shake">Shake</button>
+  </div>
+</div>
+<div id="hint">Drag things around — grab, fling, flop. Adjust size with the Scale slider (top-left).</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+(function () {
+  var Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner,
+      Bodies = Matter.Bodies, Body = Matter.Body, Composite = Matter.Composite,
+      Constraint = Matter.Constraint, Mouse = Matter.Mouse,
+      MouseConstraint = Matter.MouseConstraint, Events = Matter.Events;
+
+  var width = window.innerWidth, height = window.innerHeight;
+  var pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  var WALL = 160;
+  var currentMode = 'chains';
+  var scale = 1.5;          // global size multiplier (driven by slider)
+  var DROP_CAP = 220;
+  var ragdollHeads = [];    // faces drawn each frame via afterRender
+
+  // --- engine / render / runner (created once) ---
+  var engine = Engine.create();
+  engine.world.gravity.y = 1;
+  engine.positionIterations = 8;
+  engine.velocityIterations = 6;
+  engine.constraintIterations = 4;
+
+  var render = Render.create({
+    element: document.body, engine: engine,
+    options: { width: width, height: height, pixelRatio: pixelRatio,
+               wireframes: false, background: '#0e1117', showSleeping: false }
+  });
+  Render.run(render);
+  var runner = Runner.create();
+  Runner.run(runner, engine);
+
+  // --- input ---
+  var mouse = Mouse.create(render.canvas);
+  mouse.pixelRatio = pixelRatio;
+  var mouseConstraint = MouseConstraint.create(engine, {
+    mouse: mouse, constraint: { stiffness: 0.22, damping: 0.1, render: { visible: false } }
+  });
+  render.mouse = mouse;
+
+  // --- faces (uncanny dot-eyes + downturned mouth) ---
+  function drawFace(ctx, body, r) {
+    var p = body.position, a = body.angle;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(a);
+    var eyeOff = r * 0.38, eyeY = -r * 0.12, eyeR = r * 0.26;
+    [-1, 1].forEach(function (sx) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(sx * eyeOff, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#15110f';
+      ctx.beginPath(); ctx.arc(sx * eyeOff, eyeY + r * 0.06, eyeR * 0.5, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.strokeStyle = 'rgba(40,20,20,0.65)';
+    ctx.lineWidth = Math.max(1.5, r * 0.08);
+    ctx.beginPath(); ctx.arc(0, r * 0.55, r * 0.32, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+    ctx.restore();
+  }
+  Events.on(render, 'afterRender', function () {
+    if (!ragdollHeads.length) return;
+    var ctx = render.context;
+    ctx.save();
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); // world coords, accounting for DPR
+    ragdollHeads.forEach(function (h) { drawFace(ctx, h.body, h.r); });
+    ctx.restore();
+  });
+
+  // --- helpers ---
+  var palette = ['#ff7eb6', '#7ee787', '#79c0ff', '#ffb454', '#e06c75', '#c678dd', '#56d4c2'];
+  function pick(i) { return palette[(i == null ? Math.floor(Math.random() * palette.length) : i) % palette.length]; }
+
+  function addWalls() {
+    var opts = { isStatic: true, render: { fillStyle: '#161c26' } };
+    Composite.add(engine.world, [
+      Bodies.rectangle(width / 2, height + WALL / 2, width + 2 * WALL, WALL, opts),
+      Bodies.rectangle(width / 2, -WALL / 2, width + 2 * WALL, WALL, opts),
+      Bodies.rectangle(-WALL / 2, height / 2, WALL, height + 2 * WALL, opts),
+      Bodies.rectangle(width + WALL / 2, height / 2, WALL, height + 2 * WALL, opts)
+    ]);
+  }
+
+  // hanging chain + bob
+  function makeChain(x, y, n, linkH, color) {
+    var group = Body.nextGroup(true), comp = Composite.create(), prev = null, b;
+    var lw = Math.max(6, linkH * 0.45);
+    for (var i = 0; i < n; i++) {
+      b = Bodies.rectangle(x, y + i * linkH, lw, linkH * 0.9, {
+        collisionFilter: { group: group }, chamfer: { radius: 3 }, render: { fillStyle: '#7d8da6' }
+      });
+      Composite.addBody(comp, b);
+      Composite.addConstraint(comp, Constraint.create(
+        prev
+          ? { bodyA: prev, pointA: { x: 0, y: linkH / 2 }, bodyB: b, pointB: { x: 0, y: -linkH / 2 },
+              stiffness: 0.95, length: 2, render: { strokeStyle: '#5a6478', lineWidth: 2 } }
+          : { pointA: { x: x, y: y - linkH / 2 }, bodyB: b, pointB: { x: 0, y: -linkH / 2 },
+              stiffness: 0.95, length: 2, render: { strokeStyle: '#5a6478', lineWidth: 2 } }
+      ));
+      prev = b;
+    }
+    var bob = Bodies.circle(x, y + n * linkH, linkH * 1.1, {
+      collisionFilter: { group: group }, density: 0.02, render: { fillStyle: color }
+    });
+    Composite.addBody(comp, bob);
+    Composite.addConstraint(comp, Constraint.create({
+      bodyA: prev, pointA: { x: 0, y: linkH / 2 }, bodyB: bob, pointB: { x: 0, y: -bob.circleRadius },
+      stiffness: 0.95, length: 2, render: { strokeStyle: '#5a6478', lineWidth: 2 }
+    }));
+    return comp;
+  }
+
+  // rope bridge
+  function makeBridge(x1, x2, y, planks) {
+    var group = Body.nextGroup(true), comp = Composite.create(), prev = null, b;
+    var pw = (x2 - x1) / planks;
+    for (var i = 0; i < planks; i++) {
+      b = Bodies.rectangle(x1 + pw * i + pw / 2, y, pw * 0.92, 12 * scale, {
+        collisionFilter: { group: group }, render: { fillStyle: '#9c7a4d' }
+      });
+      Composite.addBody(comp, b);
+      Composite.addConstraint(comp, Constraint.create(
+        prev
+          ? { bodyA: prev, pointA: { x: pw / 2, y: 0 }, bodyB: b, pointB: { x: -pw / 2, y: 0 },
+              stiffness: 0.7, render: { strokeStyle: '#6b5331', lineWidth: 2 } }
+          : { pointA: { x: x1, y: y }, bodyB: b, pointB: { x: -pw / 2, y: 0 },
+              stiffness: 0.9, render: { strokeStyle: '#6b5331', lineWidth: 2 } }
+      ));
+      prev = b;
+    }
+    Composite.addConstraint(comp, Constraint.create({
+      pointA: { x: x2, y: y }, bodyB: prev, pointB: { x: pw / 2, y: 0 },
+      stiffness: 0.9, render: { strokeStyle: '#6b5331', lineWidth: 2 }
+    }));
+    return comp;
+  }
+
+  // floppy humanoid: squishy torso mesh + head + stretchy limb chains
+  function makeRagdoll(cx, cy, s, color) {
+    var group = Body.nextGroup(true), comp = Composite.create();
+    var part = function (x, y, r, opts) {
+      var b = Bodies.circle(x, y, r, Object.assign({
+        collisionFilter: { group: group }, friction: 0.5, frictionStatic: 0.7,
+        inertia: Infinity, render: { fillStyle: color }
+      }, opts || {}));
+      Composite.addBody(comp, b); return b;
+    };
+    var link = function (a, b, stiff) {
+      Composite.addConstraint(comp, Constraint.create({
+        bodyA: a, bodyB: b, stiffness: stiff, damping: 0.07, render: { visible: false }
+      }));
+    };
+    var limb = function (anchor, dirX, count, segR, segSp, attach, chain) {
+      var prev = anchor, x = anchor.position.x, y = anchor.position.y;
+      for (var i = 0; i < count; i++) {
+        x += dirX * segSp * 0.5; y += segSp * 0.85;
+        var rr = (i === count - 1) ? segR * 1.25 : segR;
+        var seg = part(x, y, rr);
+        link(prev, seg, i === 0 ? attach : chain);
+        prev = seg;
+      }
+    };
+
+    var sp = 20 * s, tr = 11 * s;
+    var torso = [];
+    for (var r = 0; r < 4; r++) { torso[r] = []; for (var c = 0; c < 3; c++) torso[r][c] = part(cx + (c - 1) * sp, cy + r * sp, tr); }
+    for (var r2 = 0; r2 < 4; r2++) for (var c2 = 0; c2 < 3; c2++) {
+      if (c2 < 2) link(torso[r2][c2], torso[r2][c2 + 1], 0.14);
+      if (r2 < 3) link(torso[r2][c2], torso[r2 + 1][c2], 0.14);
+      if (c2 < 2 && r2 < 3) { link(torso[r2][c2], torso[r2 + 1][c2 + 1], 0.1); link(torso[r2][c2 + 1], torso[r2 + 1][c2], 0.1); }
+    }
+
+    var headR = 20 * s;
+    var head = Bodies.circle(cx, cy - headR - tr - 4 * s, headR, {
+      collisionFilter: { group: group }, density: 0.004, friction: 0.5, render: { fillStyle: color }
+    });
+    Composite.addBody(comp, head);
+    link(head, torso[0][1], 0.3); link(head, torso[0][0], 0.12); link(head, torso[0][2], 0.12);
+
+    limb(torso[0][0], -1, 4, 8 * s, 13 * s, 0.25, 0.06);   // left arm  (stretchy)
+    limb(torso[0][2],  1, 4, 8 * s, 13 * s, 0.25, 0.06);   // right arm
+    limb(torso[3][0], -0.3, 4, 9 * s, 14 * s, 0.3, 0.07);  // left leg
+    limb(torso[3][2],  0.3, 4, 9 * s, 14 * s, 0.3, 0.07);  // right leg
+
+    ragdollHeads.push({ body: head, r: headR });
+    return comp;
+  }
+
+  // --- modes ---
+  function buildChains() {
+    Composite.add(engine.world, makeChain(width * 0.22, 70, 9, 22 * scale, '#ffb454'));
+    Composite.add(engine.world, makeChain(width * 0.36, 70, 11, 20 * scale, '#ff7eb6'));
+    Composite.add(engine.world, makeBridge(width * 0.52, Math.min(width * 0.95, width - 30), height * 0.32, 10));
+    for (var i = 0; i < 4; i++)
+      Composite.add(engine.world, Bodies.circle(width * (0.6 + i * 0.07), height - 80, 22 * scale, {
+        restitution: 0.5, render: { fillStyle: pick(i + 2) } }));
+  }
+
+  function buildDominoes() {
+    var h = 78 * scale, w = 13 * scale, gap = 46 * scale;
+    var n = Math.max(5, Math.floor((width - 120) / gap));
+    var startX = (width - (n - 1) * gap) / 2;
+    var baseY = height - 40 - h / 2;
+    for (var i = 0; i < n; i++)
+      Composite.add(engine.world, Bodies.rectangle(startX + i * gap, baseY, w, h, {
+        friction: 0.4, render: { fillStyle: i % 2 ? '#61afef' : '#e06c75' } }));
+    Composite.add(engine.world, Bodies.circle(Math.max(40, startX - gap * 1.6), baseY, 26 * scale, {
+      density: 0.01, restitution: 0.4, render: { fillStyle: '#98c379' } }));
+    for (var j = 0; j < 4; j++)
+      Composite.add(engine.world, Bodies.rectangle(width * 0.2 + j * 60 * scale, 60, 40 * scale, 40 * scale, {
+        render: { fillStyle: '#c678dd' } }));
+  }
+
+  function buildRagdolls() {
+    var skins = ['#f0b49a', '#e3a173', '#f6cdb5', '#cda3e4', '#9ccef0'];
+    [0.28, 0.5, 0.72].forEach(function (fx, i) {
+      Composite.add(engine.world, makeRagdoll(width * fx, height * 0.25, scale, skins[i % skins.length]));
+    });
+    Composite.add(engine.world, Bodies.circle(width * 0.5, height - 90, 30 * scale, {
+      density: 0.02, render: { fillStyle: '#ffb454' } }));
+  }
+
+  function buildMode(mode) {
+    currentMode = mode;
+    ragdollHeads = [];
+    Composite.clear(engine.world, false);
+    Composite.add(engine.world, mouseConstraint);
+    addWalls();
+    if (mode === 'chains') buildChains();
+    else if (mode === 'dominoes') buildDominoes();
+    else buildRagdolls();
+    syncButtons();
+  }
+
+  // --- actions ---
+  function pruneIfNeeded() {
+    var dyn = Composite.allBodies(engine.world).filter(function (b) { return !b.isStatic; });
+    for (var i = 0; i < dyn.length - DROP_CAP; i++) Composite.remove(engine.world, dyn[i]);
+  }
+  function dropMore() {
+    for (var i = 0; i < 8; i++) {
+      var x = 60 + Math.random() * (width - 120), r = (14 + Math.random() * 16) * scale, body;
+      if (Math.random() < 0.5) body = Bodies.circle(x, 30, r, { restitution: 0.55, render: { fillStyle: pick() } });
+      else body = Bodies.rectangle(x, 30, r * 1.6, r * 1.6, { restitution: 0.3, render: { fillStyle: pick() } });
+      Composite.add(engine.world, body);
+    }
+    pruneIfNeeded();
+  }
+  function shake() {
+    Composite.allBodies(engine.world).forEach(function (b) {
+      if (!b.isStatic) {
+        Body.setVelocity(b, { x: (Math.random() - 0.5) * 18, y: -Math.random() * 15 - 4 });
+        Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4);
+      }
+    });
+  }
+
+  // --- UI ---
+  var modeButtons = document.querySelectorAll('button.mode');
+  function syncButtons() {
+    modeButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.mode === currentMode); });
+  }
+  modeButtons.forEach(function (btn) { btn.addEventListener('click', function () { buildMode(btn.dataset.mode); }); });
+  document.getElementById('reset').addEventListener('click', function () { buildMode(currentMode); });
+  document.getElementById('drop').addEventListener('click', dropMore);
+  document.getElementById('shake').addEventListener('click', shake);
+
+  var slider = document.getElementById('scale'), scaleVal = document.getElementById('scaleVal'), sTimer = null;
+  slider.addEventListener('input', function () {
+    scale = parseFloat(slider.value);
+    scaleVal.textContent = scale.toFixed(1) + '×';
+    clearTimeout(sTimer);
+    sTimer = setTimeout(function () { buildMode(currentMode); }, 120);
+  });
+
+  var hint = document.getElementById('hint');
+  function hideHint() { hint.classList.add('hide'); }
+  setTimeout(hideHint, 8000);
+  render.canvas.addEventListener('mousedown', hideHint, { once: true });
+  render.canvas.addEventListener('touchstart', hideHint, { once: true, passive: true });
+
+  // --- resize ---
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      width = window.innerWidth; height = window.innerHeight;
+      render.options.width = width; render.options.height = height;
+      render.canvas.width = width * pixelRatio; render.canvas.height = height * pixelRatio;
+      render.canvas.style.width = width + 'px'; render.canvas.style.height = height + 'px';
+      render.bounds.max.x = width; render.bounds.max.y = height;
+      buildMode(currentMode);
+    }, 150);
+  });
+
+  buildMode('chains');
+})();
+</script>
+</body>
+</html>

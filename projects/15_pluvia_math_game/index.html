@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Pluvia &mdash; Number Rain</title>
+<style>
+  :root { --bg:#05060d; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden;
+    font-family:"Verdana","Trebuchet MS",system-ui,sans-serif; touch-action:none; }
+  body { display:flex; flex-direction:column; }
+  #game { flex:1 1 auto; width:100%; min-height:0; display:block; }
+  /* Touch keypad: a static row beneath the canvas (so it reserves space, never covers the input box).
+     Shown only during play on coarse-pointer devices; toggled from JS. */
+  #pad { flex:0 0 auto; display:none; grid-template-columns:repeat(3,1fr); gap:6px;
+    padding:8px 8px calc(8px + env(safe-area-inset-bottom)); background:#0a0c18; }
+  #pad button { font:700 24px/1 "Verdana",sans-serif; padding:16px 0; border:none;
+    border-radius:12px; background:#1b2140; color:#eaf0ff; }
+  #pad button:active { background:#2a3566; }
+  #pad button.act { background:#274a8f; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="pad" aria-hidden="true">
+  <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+  <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+  <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+  <button data-k="back" class="act">&#9003;</button><button data-k="0">0</button>
+  <button data-k="enter" class="act">&#9166;</button>
+</div>
+<script>
+(function(){
+"use strict";
+
+// =============================================================
+// TUNABLE CONSTANTS  -- adjust for different ages/abilities
+// =============================================================
+var OPERATIONS = ["add","sub","mul","div"]; // unlock order (fixed)
+
+// Display identity (rename freely; kept distinct from the many generic "Math Rain" games)
+var TITLE = "PLUVIA";
+var TAGLINE = "a number-rain math trainer";
+
+var CONFIG = {
+  // ---- where the player begins ----
+  STARTING_STAGE: 0,      // 0=add only, 1=+sub, 2=+mul, 3=+div (clamped to the chosen mode)
+  STARTING_LEVEL: 1,      // operand-magnitude level each unlocked op starts at (1..MAX_LEVEL)
+  DEFAULT_MAX_OP: 3,      // ceiling used before a mode is chosen (3 = all four)
+
+  // ---- mastery gate to UNLOCK THE NEXT operation (not a timer) ----
+  WINDOW: 8,              // rolling window of recent attempts kept per operation
+  MASTERY_MIN_SAMPLES: 6, // need this many recent attempts before judging mastery
+  MASTERY_ACCURACY: 0.85, // window accuracy required to unlock the next op
+  MASTERY_MAX_AVG_TIME: 6.5, // avg seconds per CORRECT answer to count as "fast enough"
+  MASTERY_MIN_LEVEL: 3,   // an op must reach this magnitude level before it can gate the next unlock
+
+  // ---- within-stage magnitude scaling, tracked PER OP ----
+  MAX_LEVEL: 8,
+  LEVEL_UP_ACCURACY: 0.80,
+  LEVEL_DOWN_ACCURACY: 0.50,
+  LEVEL_MIN_SAMPLES: 4,
+
+  // ---- pacing, driven by overall competence (0..1) ----
+  FALL_SPEED_MIN: 38,
+  FALL_SPEED_MAX: 135,
+  SPAWN_INTERVAL_MAX: 3.6,
+  SPAWN_INTERVAL_MIN: 1.7,
+  MULTI_DROP_COMPETENCE: 0.55,
+  MAX_CONCURRENT: 2,
+
+  // ---- quick reactive easing when struggling RIGHT NOW ----
+  STRUGGLE_WINDOW: 6,
+  STRUGGLE_ACCURACY: 0.5,
+  STRUGGLE_SLOWDOWN: 0.6,
+
+  // ---- rewards & failure ----
+  POWERUP_CHANCE: 0.12,
+  SLOWMO_SECONDS: 6.0,
+  SLOWMO_FACTOR: 0.30,
+  MAX_STRIKES: 5,
+  STRIKE_ON_WRONG_ANSWER: false, // gentle: only a FALLEN drop costs a strike
+  MAX_INPUT_LEN: 4,
+  WRONG_NUDGE: 16               // px the targeted drop slips down on a wrong answer (no strike)
+};
+
+// =============================================================
+// CANVAS + RESPONSIVE LETTERBOX (internal resolution tracks the device aspect)
+// =============================================================
+var BASE_H = 640;                 // reference internal height; width derived from aspect
+var INTERNAL_W = 854, INTERNAL_H = BASE_H;
+var canvas = document.getElementById("game");
+var ctx = canvas.getContext("2d");
+var pad = document.getElementById("pad");
+var view = { dpr:1, cssW:0, cssH:0, scale:1, offX:0, offY:0 };
+
+function isCoarse(){ try { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch(e){ return false; } }
+
+function resize(){
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var cssW = canvas.clientWidth || window.innerWidth;
+  var cssH = canvas.clientHeight || window.innerHeight;
+  canvas.width  = Math.max(1, Math.floor(cssW * dpr));
+  canvas.height = Math.max(1, Math.floor(cssH * dpr));
+  var aspect = cssW / cssH;
+  if(aspect < 0.5) aspect = 0.5;     // clamp so a very tall phone doesn't make a sliver field
+  if(aspect > 1.9) aspect = 1.9;
+  INTERNAL_H = BASE_H;
+  INTERNAL_W = Math.round(BASE_H * aspect);
+  var scale = Math.min(cssW / INTERNAL_W, cssH / INTERNAL_H);
+  view = { dpr:dpr, cssW:cssW, cssH:cssH, scale:scale,
+           offX:(cssW - INTERNAL_W*scale)/2, offY:(cssH - INTERNAL_H*scale)/2 };
+}
+function updatePad(){
+  pad.style.display = (isCoarse() && state && state.mode === "playing") ? "grid" : "none";
+  resize(); // keypad takes/returns layout space -> recompute canvas size
+}
+window.addEventListener("resize", function(){ resize(); });
+if(window.visualViewport){ window.visualViewport.addEventListener("resize", function(){ resize(); }); }
+
+// convert a screen/pointer coordinate into internal game coordinates
+function toInternal(clientX, clientY){
+  var r = canvas.getBoundingClientRect();
+  return { x:(clientX - r.left - view.offX)/view.scale, y:(clientY - r.top - view.offY)/view.scale };
+}
+
+// =============================================================
+// AUDIO (Web Audio API, gated behind first gesture)
+// =============================================================
+var actx = null;
+function ensureAudio(){
+  try {
+    if(!actx){ var AC = window.AudioContext || window.webkitAudioContext; if(AC) actx = new AC(); }
+    if(actx && actx.state === "suspended") actx.resume();
+  } catch(e){}
+}
+function blip(freq, start, dur, type, vol){
+  if(!actx) return;
+  var t0 = actx.currentTime + start;
+  var osc = actx.createOscillator(), g = actx.createGain();
+  osc.type = type || "sine";
+  osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol || 0.12, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(actx.destination);
+  osc.start(t0); osc.stop(t0 + dur + 0.02);
+}
+var SFX = {
+  correct: function(){ blip(740,0,0.13,"triangle",0.14); blip(988,0.06,0.16,"triangle",0.12); },
+  wrong:   function(){ blip(150,0,0.22,"sawtooth",0.09); blip(110,0.02,0.38,"sine",0.10); },
+  powerup: function(){ blip(880,0,0.12,"triangle",0.13); blip(1175,0.10,0.12,"triangle",0.13);
+                       blip(1568,0.20,0.30,"triangle",0.13); },
+  gameover:function(){ blip(98,0,0.5,"sine",0.16); blip(55,0.08,1.0,"sine",0.16); }
+};
+
+// =============================================================
+// MATH PROGRESSION MODEL
+// =============================================================
+function ri(lo, hi){ return Math.floor(Math.random()*(hi-lo+1))+lo; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+var OP_LABEL = { add:"Addition", sub:"Subtraction", mul:"Multiplication", div:"Division" };
+var OP_SIGN  = { add:"+", sub:"\u2212", mul:"\u00D7", div:"\u00F7" };
+
+function makeOpState(level, unlocked){ return { unlocked:!!unlocked, level:level, history:[], sinceChange:0 }; }
+
+function windowStats(op){
+  var h = state.ops[op].history, n = h.length;
+  if(!n) return { n:0, acc:0, avgT:Infinity };
+  var c=0, tsum=0, tcnt=0;
+  for(var i=0;i<n;i++){ if(h[i].correct){ c++; if(h[i].time!=null){ tsum+=h[i].time; tcnt++; } } }
+  return { n:n, acc:c/n, avgT: tcnt? tsum/tcnt : Infinity };
+}
+function recordResult(op, correct, time){
+  var h = state.ops[op].history;
+  h.push({ correct:correct, time: correct ? time : null });
+  while(h.length > CONFIG.WINDOW) h.shift();
+  state.globalHist.push(correct);
+  while(state.globalHist.length > 40) state.globalHist.shift();
+  adjustLevel(op);
+  tryUnlockNext();
+}
+function adjustLevel(op){
+  var o = state.ops[op], s = windowStats(op);
+  o.sinceChange++;
+  if(o.sinceChange < CONFIG.LEVEL_MIN_SAMPLES) return;
+  if(s.acc >= CONFIG.LEVEL_UP_ACCURACY && o.level < CONFIG.MAX_LEVEL){ o.level++; o.sinceChange=0; }
+  else if(s.acc < CONFIG.LEVEL_DOWN_ACCURACY && o.level > 1){ o.level--; o.sinceChange=0; }
+}
+function highestUnlockedIndex(){
+  var hi=-1; for(var i=0;i<OPERATIONS.length;i++){ if(state.ops[OPERATIONS[i]].unlocked) hi=i; } return hi;
+}
+function tryUnlockNext(){
+  var hi = highestUnlockedIndex();
+  if(hi < 0 || hi >= OPERATIONS.length-1) return;
+  if(hi >= state.maxOpIndex) return;          // respect the player's chosen mode ceiling
+  var op = OPERATIONS[hi], o = state.ops[op], s = windowStats(op);
+  if(o.level >= CONFIG.MASTERY_MIN_LEVEL && s.n >= CONFIG.MASTERY_MIN_SAMPLES &&
+     s.acc >= CONFIG.MASTERY_ACCURACY && s.avgT <= CONFIG.MASTERY_MAX_AVG_TIME){
+    var next = OPERATIONS[hi+1];
+    state.ops[next].unlocked = true; state.ops[next].level = 1;
+    state.banner = { text: OP_LABEL[next] + " unlocked!", timer: 2.6 };
+    SFX.powerup();
+  }
+}
+function pickOp(){
+  var unlocked=[];
+  for(var i=0;i<OPERATIONS.length;i++){ if(state.ops[OPERATIONS[i]].unlocked) unlocked.push(OPERATIONS[i]); }
+  var weights=[], total=0;
+  for(var j=0;j<unlocked.length;j++){ var w=(j===unlocked.length-1)?2.2:1; weights.push(w); total+=w; }
+  var r = Math.random()*total;
+  for(var k=0;k<unlocked.length;k++){ r-=weights[k]; if(r<=0) return unlocked[k]; }
+  return unlocked[unlocked.length-1];
+}
+function genProblem(op, L){
+  if(op==="add"){ var amax=2+L*2, a=ri(1,amax), b=ri(1,amax); return { text:a+" "+OP_SIGN.add+" "+b, answer:a+b }; }
+  if(op==="sub"){ var smax=3+L*2, x=ri(1,smax), y=ri(1,smax); if(y>x){ var t=x; x=y; y=t; }
+                  return { text:x+" "+OP_SIGN.sub+" "+y, answer:x-y }; }
+  if(op==="mul"){ var f1=Math.min(2+L,12), f2=Math.min(2+Math.ceil(L/2),12), m=ri(1,f1), nn=ri(1,f2);
+                  return { text:m+" "+OP_SIGN.mul+" "+nn, answer:m*nn }; }
+  var dmax=Math.min(2+L,12), qmax=Math.min(2+L,12), d=ri(2,dmax), q=ri(1,qmax);
+  return { text:(d*q)+" "+OP_SIGN.div+" "+d, answer:q };
+}
+function competence(){
+  var unlocked=[];
+  for(var i=0;i<OPERATIONS.length;i++){ if(state.ops[OPERATIONS[i]].unlocked) unlocked.push(OPERATIONS[i]); }
+  // op progress is measured against the chosen ceiling so a 2-op mode can still reach full pace
+  var span = Math.max(1, state.maxOpIndex);
+  var opProg = clamp((unlocked.length-1)/span, 0, 1);
+  var lvlSum=0, lvlMax=1;
+  for(var j=0;j<unlocked.length;j++){ var L=state.ops[unlocked[j]].level; lvlSum+=L; if(L>lvlMax) lvlMax=L; }
+  var lvlAvg = lvlSum/unlocked.length;
+  var lvlBlend = 0.65*lvlMax + 0.35*lvlAvg;           // weight toward strongest op
+  var lvlProg = (lvlBlend - 1)/(CONFIG.MAX_LEVEL-1);
+  var c = 0.45*opProg + 0.55*lvlProg;
+  var g = state.globalHist;
+  if(g.length >= CONFIG.STRUGGLE_WINDOW){
+    var recent = g.slice(-CONFIG.STRUGGLE_WINDOW), good=0;
+    for(var m=0;m<recent.length;m++){ if(recent[m]) good++; }
+    if(good/recent.length < CONFIG.STRUGGLE_ACCURACY) c *= CONFIG.STRUGGLE_SLOWDOWN;
+  }
+  return clamp(c,0,1);
+}
+function fallSpeed(){ return lerp(CONFIG.FALL_SPEED_MIN, CONFIG.FALL_SPEED_MAX, competence()); }
+function spawnInterval(){ return lerp(CONFIG.SPAWN_INTERVAL_MAX, CONFIG.SPAWN_INTERVAL_MIN, competence()); }
+function maxConcurrent(){ return (competence()>=CONFIG.MULTI_DROP_COMPETENCE) ? CONFIG.MAX_CONCURRENT : 1; }
+
+// =============================================================
+// GAME STATE
+// =============================================================
+var state = null;
+var lastMaxOp = CONFIG.DEFAULT_MAX_OP;
+function newGame(maxOpIndex){
+  if(maxOpIndex == null) maxOpIndex = CONFIG.DEFAULT_MAX_OP;
+  var startStage = Math.min(CONFIG.STARTING_STAGE, maxOpIndex);
+  var ops = {};
+  for(var i=0;i<OPERATIONS.length;i++){
+    var unlocked = (i <= startStage);
+    ops[OPERATIONS[i]] = makeOpState(unlocked ? CONFIG.STARTING_LEVEL : 1, unlocked);
+  }
+  return {
+    mode:"start", maxOpIndex:maxOpIndex,
+    ops:ops, globalHist:[], drops:[], input:"",
+    score:0, streak:0, bestStreak:0, strikes:0,
+    spawnTimer:0.4, slowmo:0,
+    flash:null, banner:null, feedWord:null,
+    startButtons:[], bg:initBG()
+  };
+}
+function initBG(){
+  var s=[]; for(var i=0;i<34;i++) s.push({ x:Math.random(), y:Math.random(), len:8+Math.random()*22, v:30+Math.random()*60 });
+  return s; // x,y stored as fractions so they adapt to any field size
+}
+
+var ENCOURAGE = ["Nice!","Yes!","Great!","Sharp!","Boom!","Lovely!","Spot on!"];
+var ENCOURAGE_HOT = ["On fire!","Unstoppable!","Brilliant!","Streak!","Wow!"];
+function encourageFor(streak){ return streak>=5 ? ENCOURAGE_HOT[ri(0,ENCOURAGE_HOT.length-1)] : ENCOURAGE[ri(0,ENCOURAGE.length-1)]; }
+
+function spawnDrop(){
+  var op = pickOp(), L = state.ops[op].level, p = genProblem(op, L);
+  var isPower = Math.random() < CONFIG.POWERUP_CHANCE;
+  var r = Math.min(46, INTERNAL_W*0.085 + 24);
+  state.drops.push({ x: ri(Math.round(r+8), Math.round(INTERNAL_W-r-8)), y:-r, op:op,
+    text:p.text, answer:p.answer, isPower:isPower, speed: fallSpeed()*(isPower?0.7:1), age:0, r:r });
+}
+
+function submit(){
+  if(state.mode!=="playing" || state.input==="") return;
+  var val = parseInt(state.input,10);
+  state.input="";
+  if(isNaN(val)) return;
+  var matchIdx=-1, lowestY=-Infinity;
+  for(var i=0;i<state.drops.length;i++){
+    if(state.drops[i].answer===val && state.drops[i].y>lowestY){ lowestY=state.drops[i].y; matchIdx=i; }
+  }
+  if(matchIdx>=0){
+    var d = state.drops[matchIdx];
+    recordResult(d.op, true, d.age);
+    state.score++; state.streak++;
+    if(state.streak > state.bestStreak) state.bestStreak = state.streak;
+    state.flash = { type:"correct", timer:0.35 };
+    state.feedWord = { text: encourageFor(state.streak), timer:0.8 };
+    if(d.isPower){ state.slowmo = CONFIG.SLOWMO_SECONDS; SFX.powerup(); } else { SFX.correct(); }
+    state.drops.splice(matchIdx,1);
+  } else {
+    state.streak = 0;
+    if(state.drops.length){
+      var li=0, ly=-Infinity;
+      for(var j=0;j<state.drops.length;j++){ if(state.drops[j].y>ly){ ly=state.drops[j].y; li=j; } }
+      recordResult(state.drops[li].op, false, null);
+      state.drops[li].y += CONFIG.WRONG_NUDGE;
+    }
+    state.flash = { type:"wrong", timer:0.35 };
+    SFX.wrong();
+    if(CONFIG.STRIKE_ON_WRONG_ANSWER){ takeStrike(); }
+  }
+}
+function takeStrike(){
+  state.strikes++;
+  if(state.strikes >= CONFIG.MAX_STRIKES){ state.mode="gameover"; state.drops.length=0; SFX.gameover(); updatePad(); }
+}
+
+// =============================================================
+// FIXED-TIMESTEP UPDATE
+// =============================================================
+function update(dt){
+  if(state.slowmo>0) state.slowmo = Math.max(0, state.slowmo-dt);
+  if(state.flash){ state.flash.timer-=dt; if(state.flash.timer<=0) state.flash=null; }
+  if(state.banner){ state.banner.timer-=dt; if(state.banner.timer<=0) state.banner=null; }
+  if(state.feedWord){ state.feedWord.timer-=dt; if(state.feedWord.timer<=0) state.feedWord=null; }
+
+  var sm = state.slowmo>0 ? CONFIG.SLOWMO_FACTOR : 1;
+  for(var b=0;b<state.bg.length;b++){ var s=state.bg[b]; s.y += (s.v*dt*sm)/INTERNAL_H; if(s.y>1.05){ s.y=-0.05; s.x=Math.random(); } }
+
+  state.spawnTimer -= dt;
+  if(state.spawnTimer<=0 && state.drops.length < maxConcurrent()){ spawnDrop(); state.spawnTimer = spawnInterval(); }
+
+  var factor = state.slowmo>0 ? CONFIG.SLOWMO_FACTOR : 1;
+  for(var i=state.drops.length-1;i>=0;i--){
+    var d=state.drops[i]; d.age += dt; d.y += d.speed*factor*dt;
+    if(d.y > INTERNAL_H + d.r){
+      recordResult(d.op, false, null); state.streak=0;
+      state.flash = { type:"wrong", timer:0.35 }; SFX.wrong();
+      state.drops.splice(i,1); takeStrike();
+    }
+  }
+}
+
+// =============================================================
+// RENDERING
+// =============================================================
+function setFont(px, weight){ ctx.font = (weight||"700")+" "+px+'px "Verdana","Trebuchet MS",sans-serif'; }
+function fitFont(text, maxW, startPx){ var px=startPx; setFont(px);
+  while(ctx.measureText(text).width>maxW && px>11){ px-=1; setFont(px); } return px; }
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function drawStar(cx,cy,r,fill){ ctx.save(); ctx.beginPath();
+  for(var i=0;i<10;i++){ var a=-Math.PI/2+i*Math.PI/5, rr=(i%2===0)?r:r*0.42;
+    var px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr; if(i===0)ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); ctx.restore(); }
+
+function render(){
+  var dpr=view.dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,view.cssW,view.cssH);
+  ctx.fillStyle="#05060d"; ctx.fillRect(0,0,view.cssW,view.cssH);
+
+  ctx.save(); ctx.translate(view.offX, view.offY); ctx.scale(view.scale, view.scale);
+  // clip to the field so letterbox bars stay clean
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,INTERNAL_W,INTERNAL_H); ctx.clip();
+
+  var sky = ctx.createLinearGradient(0,0,0,INTERNAL_H);
+  sky.addColorStop(0,"#121634"); sky.addColorStop(1,"#05060d");
+  ctx.fillStyle=sky; ctx.fillRect(0,0,INTERNAL_W,INTERNAL_H);
+  ctx.strokeStyle="rgba(120,150,220,0.16)"; ctx.lineWidth=2;
+  for(var b=0;b<state.bg.length;b++){ var s=state.bg[b]; var sx=s.x*INTERNAL_W, sy=s.y*INTERNAL_H;
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx, sy+s.len); ctx.stroke(); }
+
+  if(state.mode==="start"){ drawStart(); ctx.restore(); ctx.restore(); return; }
+
+  for(var i=0;i<state.drops.length;i++) drawDrop(state.drops[i]);
+  drawHUD();
+  if(state.slowmo>0){ var w=(state.slowmo/CONFIG.SLOWMO_SECONDS)*INTERNAL_W; ctx.fillStyle="#ffd23f"; ctx.fillRect(0,INTERNAL_H-8,w,8); }
+  drawInput();
+  if(state.banner){ var a=Math.min(1,state.banner.timer); ctx.globalAlpha=a;
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle="#ffd23f"; fitFont(state.banner.text, INTERNAL_W*0.9, 36);
+    ctx.fillText(state.banner.text, INTERNAL_W/2, INTERNAL_H*0.22); ctx.globalAlpha=1; }
+  if(state.mode==="gameover") drawGameOver();
+
+  ctx.restore(); ctx.restore();
+}
+
+function drawDrop(d){
+  ctx.save();
+  if(d.isPower){ ctx.shadowColor="rgba(255,210,63,0.8)"; ctx.shadowBlur=28; }
+  var grad=ctx.createRadialGradient(d.x-d.r*0.3,d.y-d.r*0.35,d.r*0.15,d.x,d.y,d.r);
+  if(d.isPower){ grad.addColorStop(0,"#fff3b0"); grad.addColorStop(1,"#f5b400"); }
+  else { grad.addColorStop(0,"#6da0ec"); grad.addColorStop(1,"#284f9e"); }
+  ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0; ctx.lineWidth=3; ctx.strokeStyle=d.isPower?"#fff7d6":"#9fc0ff";
+  ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle="#ffffff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  fitFont(d.text, d.r*2-14, 26); ctx.fillText(d.text, d.x, d.y+1);
+  ctx.restore();
+}
+
+function drawHUD(){
+  var compact = INTERNAL_W < 560;
+  var pipR = compact?10:13, pipGap = compact?30:40, pipX0 = compact?28:34;
+  for(var i=0;i<CONFIG.MAX_STRIKES;i++){
+    var x=pipX0+i*pipGap;
+    ctx.beginPath(); ctx.arc(x,34,pipR,0,Math.PI*2);
+    ctx.fillStyle = (i < CONFIG.MAX_STRIKES-state.strikes) ? "#ff5c5c" : "#2a2f49"; ctx.fill();
+  }
+  setFont(compact?28:34); ctx.textAlign="right"; ctx.textBaseline="alphabetic"; ctx.fillStyle="#ffd23f";
+  var stxt=String(state.score); ctx.fillText(stxt, INTERNAL_W-22, compact?40:46);
+  var sw=ctx.measureText(stxt).width; drawStar(INTERNAL_W-22-sw-16, compact?32:36, compact?11:13, "#ffd23f");
+  if(state.streak>=3){ ctx.fillStyle="#ff9f43"; setFont(compact?16:20); ctx.fillText("streak \u00D7"+state.streak, INTERNAL_W-22, compact?64:74); }
+
+  var unlocked=[]; for(var k=0;k<OPERATIONS.length;k++){ if(state.ops[OPERATIONS[k]].unlocked) unlocked.push(OPERATIONS[k]); }
+  var signs=unlocked.map(function(op){ return OP_SIGN[op]; }).join(" ");
+  var trainOp=unlocked[unlocked.length-1], lvl=state.ops[trainOp].level;
+  var label = compact ? (signs+"   Lv "+lvl) : ("Stage: "+signs+"    "+OP_LABEL[trainOp]+" \u00B7 Lv "+lvl);
+  ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillStyle="#7fd0ff";
+  fitFont(label, INTERNAL_W*0.56, compact?17:20); ctx.fillText(label, INTERNAL_W/2, 30);
+}
+
+function drawInput(){
+  var bw=Math.min(150, INTERNAL_W*0.42), bh=62, bx=INTERNAL_W/2-bw/2, by=INTERNAL_H-86;
+  if(state.flash){
+    var a=Math.max(0,state.flash.timer/0.35);
+    if(state.flash.type==="correct"){ ctx.globalAlpha=a; ctx.strokeStyle="#4fe08a"; ctx.lineWidth=5;
+      var rr=72+(1-a)*26; ctx.beginPath(); ctx.arc(bx+bw/2,by+bh/2,rr,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=1; }
+    else { ctx.globalAlpha=a; ctx.strokeStyle="#ff5c5c"; ctx.lineWidth=6;
+      roundRect(bx-10,by-10,bw+20,bh+20,14); ctx.stroke(); ctx.globalAlpha=1; }
+  }
+  ctx.fillStyle="#171c34"; roundRect(bx,by,bw,bh,12); ctx.fill();
+  ctx.lineWidth=3; ctx.strokeStyle="#4f7fd6"; roundRect(bx,by,bw,bh,12); ctx.stroke();
+  ctx.fillStyle="#ffffff"; ctx.textAlign="center"; ctx.textBaseline="middle"; setFont(38);
+  ctx.fillText(state.input || "", bx+bw/2, by+bh/2+1);
+  if(state.feedWord){ ctx.globalAlpha=Math.min(1,state.feedWord.timer/0.8); ctx.fillStyle="#4fe08a"; setFont(26);
+    ctx.fillText(state.feedWord.text, bx+bw/2, by-34); ctx.globalAlpha=1; }
+}
+
+function drawStart(){
+  var W=INTERNAL_W, H=INTERNAL_H, cx=W/2;
+  if(W >= 560){                        // decorative drops only where there's room (landscape/desktop)
+    var dr=Math.min(46, W*0.12);
+    drawDrop({ x:W*0.16, y:H*0.17, text:"6 + 5", isPower:false, r:dr });
+    drawDrop({ x:W*0.84, y:H*0.21, text:"4 \u00D7 3", isPower:true,  r:dr });
+  }
+
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillStyle="#ffd23f"; ctx.shadowColor="rgba(255,210,63,0.55)"; ctx.shadowBlur=26;
+  fitFont(TITLE, W*0.82, 84); ctx.fillText(TITLE, cx, H*0.17); ctx.shadowBlur=0;
+  ctx.fillStyle="#9fb0d6"; fitFont(TAGLINE, W*0.82, 20); ctx.fillText(TAGLINE, cx, H*0.245);
+  ctx.fillStyle="#cfe0ff"; fitFont("Choose your challenge", W*0.82, 24); ctx.fillText("Choose your challenge", cx, H*0.345);
+
+  // mode buttons
+  var bw=Math.min(W*0.84, 460), bh=H*0.115, bx=cx-bw/2;
+  var ay=H*0.43, by=ay+bh+H*0.045;
+  state.startButtons = [
+    { x:bx, y:ay, w:bw, h:bh, maxIdx:1, main:"Addition & Subtraction", sub:"+   \u2212" },
+    { x:bx, y:by, w:bw, h:bh, maxIdx:3, main:"All Four Operations",   sub:"+   \u2212   \u00D7   \u00F7" }
+  ];
+  for(var i=0;i<state.startButtons.length;i++){
+    var b=state.startButtons[i];
+    ctx.fillStyle="#1b2447"; roundRect(b.x,b.y,b.w,b.h,14); ctx.fill();
+    ctx.lineWidth=2.5; ctx.strokeStyle=(b.maxIdx===1)?"#4f7fd6":"#ffd23f"; roundRect(b.x,b.y,b.w,b.h,14); ctx.stroke();
+    ctx.fillStyle="#ffffff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    fitFont((i+1)+".  "+b.main, b.w-24, 24); ctx.fillText((i+1)+".  "+b.main, b.x+b.w/2, b.y+b.h*0.36);
+    ctx.fillStyle=(b.maxIdx===1)?"#9fc0ff":"#ffe08a"; fitFont(b.sub, b.w-24, 22);
+    ctx.fillText(b.sub, b.x+b.w/2, b.y+b.h*0.72);
+  }
+
+  ctx.fillStyle="#9fb0d6"; ctx.textAlign="center"; fitFont("Tap a mode \u2014 or press 1 / 2", W*0.82, 18);
+  ctx.fillText("Tap a mode \u2014 or press 1 / 2", cx, by+bh+H*0.07);
+  ctx.fillStyle="#5f6f93"; fitFont("Works on phone \u00B7 great on desktop with a keyboard", W*0.9, 15);
+  ctx.fillText("Works on phone \u00B7 great on desktop with a keyboard", cx, H*0.95);
+}
+
+function drawGameOver(){
+  var W=INTERNAL_W, H=INTERNAL_H, cx=W/2;
+  ctx.fillStyle="rgba(3,4,12,0.9)"; ctx.fillRect(0,0,W,H);
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  var praise, col;
+  if(state.score<5){ praise="Good start \u2014 keep practicing!"; col="#cfe0ff"; }
+  else if(state.score<15){ praise="Well done!"; col="#7fd0ff"; }
+  else if(state.score<30){ praise="Math master!"; col="#4fe08a"; }
+  else { praise="Absolute legend!"; col="#ffd23f"; }
+  ctx.fillStyle="#ffd23f"; fitFont("ROUND OVER", W*0.86, 66); ctx.fillText("ROUND OVER", cx, H*0.30);
+  ctx.fillStyle="#ffffff"; setFont(40); ctx.fillText("Score: "+state.score, cx, H*0.45);
+  ctx.fillStyle=col; fitFont(praise, W*0.86, 28); ctx.fillText(praise, cx, H*0.535);
+  ctx.fillStyle="#9fb0d6"; setFont(20); ctx.fillText("Best streak: "+state.bestStreak, cx, H*0.60);
+  var unlocked=[]; for(var k=0;k<OPERATIONS.length;k++){ if(state.ops[OPERATIONS[k]].unlocked) unlocked.push(OPERATIONS[k]); }
+  fitFont("Reached: "+unlocked.map(function(o){return OP_LABEL[o];}).join(" \u00B7 "), W*0.86, 20);
+  ctx.fillText("Reached: "+unlocked.map(function(o){return OP_LABEL[o];}).join(" \u00B7 "), cx, H*0.645);
+  ctx.fillStyle="#cfe0ff"; fitFont("Press R or tap to play again", W*0.86, 26); ctx.fillText("Press R or tap to play again", cx, H*0.74);
+}
+
+// =============================================================
+// INPUT
+// =============================================================
+function startWithMode(maxIdx){ lastMaxOp=maxIdx; var bg=state.bg; state=newGame(maxIdx); state.bg=bg; state.mode="playing"; ensureAudio(); updatePad(); }
+function restart(){ var bg=state.bg; state=newGame(lastMaxOp); state.bg=bg; state.mode="playing"; ensureAudio(); updatePad(); }
+
+function handleKey(k){
+  if(state.mode==="start"){
+    if(k==="1") startWithMode(1);
+    else if(k==="2") startWithMode(3);
+    else if(k===" "||k==="Enter") startWithMode(3);
+    return;
+  }
+  if(state.mode==="gameover"){ if(k==="r"||k==="R"||k==="Enter"||k===" ") restart(); return; }
+  if(/^[0-9]$/.test(k)){ if(state.input.length<CONFIG.MAX_INPUT_LEN) state.input+=k; }
+  else if(k==="Backspace"){ state.input=state.input.slice(0,-1); }
+  else if(k==="Enter"){ submit(); }
+}
+window.addEventListener("keydown", function(e){
+  var k=e.key;
+  if(k===" "||k==="Enter"||k==="Backspace"||/^[0-9]$/.test(k)||k.indexOf("Arrow")===0){ e.preventDefault(); }
+  handleKey(k);
+}, { passive:false });
+
+function pointerDown(e){
+  ensureAudio();
+  if(state.mode==="start"){
+    var p=toInternal(e.clientX, e.clientY), btns=state.startButtons||[];
+    for(var i=0;i<btns.length;i++){ var b=btns[i];
+      if(p.x>=b.x && p.x<=b.x+b.w && p.y>=b.y && p.y<=b.y+b.h){ startWithMode(b.maxIdx); return; } }
+    return;
+  }
+  if(state.mode==="gameover"){ restart(); }
+}
+canvas.addEventListener("pointerdown", pointerDown);
+
+pad.addEventListener("pointerdown", function(e){
+  var btn=e.target.closest && e.target.closest("button"); if(!btn) return;
+  e.preventDefault(); ensureAudio();
+  if(state.mode!=="playing") return;
+  var kk=btn.getAttribute("data-k");
+  if(kk==="back") handleKey("Backspace");
+  else if(kk==="enter") handleKey("Enter");
+  else handleKey(kk);
+}, { passive:false });
+
+// =============================================================
+// MAIN LOOP (fixed timestep)
+// =============================================================
+var STEP=1/60, accumulator=0, last=performance.now();
+function frame(now){
+  var dt=(now-last)/1000; last=now;
+  if(dt>0.25) dt=0.25;
+  accumulator+=dt;
+  while(accumulator>=STEP){ if(state.mode==="playing") update(STEP); accumulator-=STEP; }
+  render();
+  requestAnimationFrame(frame);
+}
+
+state=newGame();
+resize(); updatePad();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

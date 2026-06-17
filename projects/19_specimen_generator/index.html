@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Specimens — living procedural creatures</title>
+<style>
+  :root{
+    --bg:#211f1d; --bg2:#171513;
+    --ink:#cfc7bb; --ink-dim:#8a8278; --hair:#39342f;
+    --rose:#c08c8c; --panel:rgba(20,18,16,.72);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:radial-gradient(120% 100% at 50% 38%, var(--bg) 0%, var(--bg2) 100%);
+    color:var(--ink); font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; overflow:hidden; touch-action:manipulation;
+  }
+  #stage{position:fixed; inset:0; display:flex; align-items:center; justify-content:center;}
+  #frame{position:relative; line-height:0;}
+  canvas{
+    display:block; border-radius:2px;
+    box-shadow:0 30px 80px -30px rgba(0,0,0,.7);
+    image-rendering:auto;
+  }
+  #label{
+    position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
+    text-align:center; pointer-events:none; user-select:none;
+  }
+  #label .acc{font-size:11px; letter-spacing:.34em; text-transform:uppercase; color:var(--ink-dim);}
+  #label .lat{font-style:italic; font-size:13px; color:var(--ink); margin-top:5px; letter-spacing:.01em;}
+
+  #panel{
+    position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:center;
+    padding:10px 14px; background:var(--panel); backdrop-filter:blur(8px);
+    border:1px solid var(--hair); border-radius:10px; max-width:min(940px,calc(100vw - 24px));
+  }
+  .grp{display:flex; align-items:center; gap:8px;}
+  .lbl{font-size:9.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-dim); white-space:nowrap;}
+  button, select, input[type=text]{
+    font:inherit; color:var(--ink); background:#26231f; border:1px solid var(--hair);
+    border-radius:7px; padding:8px 12px; cursor:pointer;
+  }
+  button:hover,select:hover{border-color:#544c44}
+  button:active{transform:translateY(1px)}
+  button.primary{background:#322c27; border-color:#4a423a}
+  button.primary:hover{border-color:var(--rose)}
+  input[type=text]{width:108px; cursor:text; font-variant-numeric:tabular-nums; letter-spacing:.04em;}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:130px; height:3px; border-radius:3px;
+    background:linear-gradient(90deg,#4a423a,#6a5f55); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background:var(--rose); border:2px solid #1c1916; cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px; height:15px; border-radius:50%; background:var(--rose); border:2px solid #1c1916; cursor:pointer;
+  }
+  :focus-visible{outline:2px solid var(--rose); outline-offset:2px}
+  #busy{
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(15,13,11,.55); color:var(--ink); letter-spacing:.2em; font-size:12px; text-transform:uppercase;
+  }
+  @media (max-width:520px){ #label{bottom:120px} #panel{bottom:10px} input[type=range]{width:96px} }
+</style>
+</head>
+<body>
+  <div id="stage"><div id="frame"><canvas id="c"></canvas></div></div>
+
+  <div id="label">
+    <div class="acc" id="acc">SPECIMEN —</div>
+    <div class="lat" id="lat"></div>
+  </div>
+
+  <div id="panel">
+    <button class="primary" id="gen" title="Mint a new creature">Generate</button>
+    <div class="grp">
+      <span class="lbl">Seed</span>
+      <input type="text" id="seed" inputmode="numeric" spellcheck="false" aria-label="Seed">
+    </div>
+    <div class="grp">
+      <span class="lbl">Strangeness</span>
+      <input type="range" id="strange" min="0" max="1" step="0.01" value="0.5" aria-label="Strangeness">
+    </div>
+    <div class="grp">
+      <span class="lbl" id="tempoLbl">Tempo · Ambling</span>
+      <input type="range" id="speed" min="0" max="1" step="0.01" value="0.5" aria-label="Tempo, sluggish to hyperactive">
+    </div>
+    <div class="grp">
+      <span class="lbl">Tissue</span>
+      <select id="pal" aria-label="Palette">
+        <option value="auto">Auto</option>
+        <option value="pink">Pink</option>
+        <option value="ochre">Ochre</option>
+        <option value="grey">Grey</option>
+        <option value="bruise">Bruise</option>
+        <option value="pallid">Pallid</option>
+      </select>
+    </div>
+    <button id="dl" title="Export high-resolution JPEG">Download</button>
+  </div>
+
+  <div id="busy">developing plate…</div>
+
+<script>
+// ============================================================================
+// Alien Creature Generator — shared core. Pure pixel math (no canvas drawing
+// primitives), so output is byte-identical in Node (PNG test) and the browser.
+// render(W, H, seed, opts) -> { out: Uint8ClampedArray(W*H*4), spec }
+// ============================================================================
+(function (global) {
+  'use strict';
+
+  // ---- PRNG (mulberry32) --------------------------------------------------
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---- value noise --------------------------------------------------------
+  function makeNoise(seed) {
+    const r = mulberry32((seed ^ 0x9e3779b9) >>> 0);
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = (r() * (i + 1)) | 0;
+      const t = p[i]; p[i] = p[j]; p[j] = t;
+    }
+    const perm = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+    const hash = (x, y) => perm[(perm[x & 255] + (y & 255)) & 511] / 255;
+    const sm = (t) => t * t * (3 - 2 * t);
+    function noise2(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi, u = sm(xf), v = sm(yf);
+      const a = hash(xi, yi), b = hash(xi + 1, yi);
+      const c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+      return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+    }
+    function fbm(x, y, oct, lac, gain) {
+      let f = 0, amp = 0.5, sum = 0;
+      for (let i = 0; i < oct; i++) { f += amp * noise2(x, y); sum += amp; amp *= gain; x *= lac; y *= lac; }
+      return f / sum;
+    }
+    return { noise2, fbm };
+  }
+
+  // ---- helpers ------------------------------------------------------------
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const mix = (a, b, t) => a + (b - a) * t;
+  const smoothstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0 || 1e-6), 0, 1); return t * t * (3 - 2 * t); };
+
+  function hsl2rgb(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+    return [r + m, g + m, b + m];
+  }
+
+  // ---- palette ------------------------------------------------------------
+  function makePalette(rng, strangeness, forced) {
+    const families = [
+      { name: 'pink',   h: [350, 376], s: [0.20, 0.33], l: [0.58, 0.69] },
+      { name: 'ochre',  h: [25, 41],   s: [0.22, 0.35], l: [0.51, 0.63] },
+      { name: 'grey',   h: [18, 40],   s: [0.05, 0.12], l: [0.50, 0.62] },
+      { name: 'bruise', h: [298, 342], s: [0.16, 0.29], l: [0.46, 0.58] },
+      { name: 'pallid', h: [8, 28],    s: [0.09, 0.17], l: [0.63, 0.74] },
+    ];
+    let fam = (forced && forced !== 'auto') ? (families.find(f => f.name === forced) || families[0])
+                                            : families[(rng() * families.length) | 0];
+    const h = mix(fam.h[0], fam.h[1], rng());
+    const s = mix(fam.s[0], fam.s[1], rng());
+    const l = mix(fam.l[0], fam.l[1], rng());
+    const base = hsl2rgb(h, s, l);
+
+    const bruiseAmt = mix(0.08, 0.4, strangeness) * (0.6 + 0.7 * rng());
+    // bruise stays on the warm purple/magenta side of the base, never cold blue
+    const bruiseHue = h - mix(12, 50, rng());
+    const shadow = hsl2rgb(bruiseHue, clamp(s + 0.12, 0, 0.5),
+      clamp(l - mix(0.24, 0.34, 0.4 + 0.6 * strangeness), 0.07, 0.5));
+    const shadowCol = [
+      mix(base[0] * 0.40, shadow[0], bruiseAmt),
+      mix(base[1] * 0.40, shadow[1], bruiseAmt),
+      mix(base[2] * 0.40, shadow[2], bruiseAmt),
+    ];
+    const sssHue = mix(355, 22, rng());
+    const sss = hsl2rgb(sssHue, mix(0.45, 0.7, rng()), mix(0.45, 0.55, rng()));
+    const veinHue = rng() < 0.72 ? mix(290, 330, rng()) : mix(196, 214, rng());
+    const vein = hsl2rgb(veinHue, mix(0.16, 0.30, rng()), mix(0.30, 0.42, rng()));
+    return { base, shadowCol, sss, vein, family: fam.name };
+  }
+
+  // ---- spec ---------------------------------------------------------------
+  function makeSpec(seed, strangeness, palChoice) {
+    const rng = mulberry32(seed >>> 0);
+    const asym = mix(0.12, 1.0, strangeness);
+    const balls = [];
+
+    const lean = (rng() - 0.5) * 0.5 * asym;
+    const coreCount = 2 + ((rng() * 2) | 0);
+    let topY = 0, bottomBall = null, headAnchorIdx = 0;
+    const bodyR = mix(0.9, 1.15, rng());
+    for (let i = 0; i < coreCount; i++) {
+      const t = i / Math.max(1, coreCount - 1);
+      const y = mix(-0.7, 0.95, t);
+      const r = bodyR * mix(0.95, 1.18, 1 - Math.abs(t - 0.45) * 1.3) * mix(0.85, 1.05, rng());
+      const x = lean * y + (rng() - 0.5) * 0.18 * asym;
+      balls.push({ x, y, r, strength: 1.0, kind: 'core' });
+      if (i === 0) { topY = y - r; }
+      if (i === coreCount - 1) bottomBall = balls[balls.length - 1];
+    }
+
+    const headSide = rng() < 0.5 ? -1 : 1;
+    const headX = lean * topY + headSide * mix(0.05, 0.5, asym) * rng();
+    const headY = topY + mix(0.05, 0.32, rng());
+    const headR = mix(0.5, 0.78, rng());
+    const head = { x: headX, y: headY, r: headR, strength: 1.0, kind: 'head' };
+    balls.push(head);
+    if (rng() < 0.35 + 0.4 * strangeness) {
+      balls.push({ x: headX + (rng() - 0.5) * 0.5 * (0.4 + asym), y: headY - mix(0.05, 0.4, rng()),
+        r: headR * mix(0.35, 0.7, rng()), strength: 0.95, kind: 'lump' });
+    }
+
+    const limbCount = 2 + ((rng() * (1 + 4 * strangeness)) | 0);
+    for (let li = 0; li < limbCount; li++) {
+      const fromTop = rng() < 0.3;
+      const side = rng() < 0.5 ? -1 : 1;
+      const anchor = fromTop ? head : (bottomBall || balls[0]);
+      let ax = anchor.x + side * anchor.r * mix(0.45, 0.9, rng());
+      let ay = anchor.y + (fromTop ? -0.05 : 0.25) + (rng() - 0.5) * 0.3;
+      const seg = 2 + ((rng() * 3) | 0);
+      let r = anchor.r * mix(0.30, 0.48, rng());
+      let dirX = side * mix(0.2, 0.8, rng());
+      let dirY = mix(0.25, 0.85, rng());
+      const curl = (rng() - 0.5) * 0.6 * (0.5 + asym);
+      let tip = { x: ax, y: ay, r };
+      for (let s = 0; s < seg; s++) {
+        balls.push({ x: ax, y: ay, r, strength: 0.9, kind: 'limb' });
+        tip = { x: ax, y: ay, r };
+        const step = r * mix(1.3, 1.9, rng());
+        dirX += curl * 0.4; dirY += 0.12;
+        const len = Math.hypot(dirX, dirY) || 1;
+        ax += (dirX / len) * step; ay += (dirY / len) * step;
+        r *= mix(0.66, 0.82, rng());
+      }
+      const digitCount = (rng() < 0.6) ? 2 + ((rng() * (2 + 3 * strangeness)) | 0) : 0;
+      for (let d = 0; d < digitCount; d++) {
+        const a = (d / Math.max(1, digitCount)) * 1.4;
+        const dr = tip.r * mix(0.4, 0.72, rng());
+        balls.push({ x: tip.x + Math.cos(a + 1.1) * tip.r * 1.1 + (rng() - 0.5) * 0.04,
+          y: tip.y + Math.abs(Math.sin(a)) * tip.r + dr * 0.6, r: dr, strength: 0.82, kind: 'digit' });
+      }
+    }
+
+    const growths = ((rng() * (1 + 6 * strangeness)) | 0);
+    for (let gx = 0; gx < growths; gx++) {
+      const host = balls[(rng() * coreCount) | 0];
+      const a = rng() * Math.PI * 2;
+      balls.push({ x: host.x + Math.cos(a) * host.r * mix(0.5, 0.95, rng()),
+        y: host.y + Math.sin(a) * host.r * mix(0.5, 0.95, rng()),
+        r: host.r * mix(0.16, 0.4, rng()), strength: 0.88, kind: 'growth' });
+    }
+
+    // eyes
+    const eyes = [];
+    let eyeCount; const er = rng();
+    if (er < 0.12) eyeCount = 0; else if (er < 0.45) eyeCount = 1;
+    else if (er < 0.78) eyeCount = 2; else if (er < 0.93) eyeCount = 3; else eyeCount = 4;
+    for (let e = 0; e < eyeCount; e++) {
+      const scatter = mix(0.12, 0.7, strangeness);
+      const offDir = (e % 2 === 0 ? 1 : -1) * (rng() < 0.5 ? 1 : -1);
+      eyes.push({
+        x: head.x + offDir * head.r * mix(0.25, 0.6, rng()) + (rng() - 0.5) * head.r * scatter * 1.6,
+        y: head.y + (rng() - 0.5) * head.r * (0.6 + scatter * 1.3),
+        r: head.r * mix(0.09, 0.16, rng()),
+        openness: mix(0.32, 0.82, rng()),
+        glance: (rng() - 0.5) * 0.7, glanceY: mix(0.05, 0.5, rng()),
+      });
+    }
+
+    // orifices
+    const orifices = [];
+    const oCount = (rng() < 0.7 ? 1 : 0) + ((rng() * (1 + 2 * strangeness)) | 0);
+    for (let o = 0; o < oCount; o++) {
+      const onHead = rng() < 0.6;
+      const host = onHead ? head : balls[(rng() * coreCount) | 0];
+      orifices.push({ x: host.x + (rng() - 0.5) * host.r * (0.4 + asym),
+        y: host.y + (onHead ? mix(0.15, 0.5, rng()) * host.r : (rng() - 0.5) * host.r),
+        rx: host.r * mix(0.12, 0.3, rng()), ry: host.r * mix(0.05, 0.16, rng()),
+        rot: (rng() - 0.5) * 1.2 });
+    }
+
+    // hair
+    const hairPatches = [];
+    const hpCount = (rng() * (1 + 3 * (0.4 + 0.6 * strangeness))) | 0;
+    for (let p = 0; p < hpCount; p++) {
+      const host = balls[(rng() * balls.length) | 0];
+      hairPatches.push({ x: host.x + (rng() - 0.5) * host.r, y: host.y + (rng() - 0.5) * host.r,
+        r: host.r * mix(0.4, 1.0, rng()), density: mix(0.3, 1.0, rng()), len: mix(0.05, 0.14, rng()),
+        seed: (rng() * 1e6) | 0 });
+    }
+
+    const skin = {
+      poreScale: mix(9, 16, rng()), poreAmt: mix(0.01, 0.022, rng()),
+      wrinkleScale: mix(3.5, 6, rng()), wrinkleAmt: mix(0.03, 0.07, rng()) * (0.6 + strangeness),
+      foldScale: mix(1.6, 3.0, rng()), foldAmt: mix(0.05, 0.11, rng()),
+      noiseSeed: (rng() * 1e6) | 0,
+    };
+    const palette = makePalette(rng, strangeness, palChoice);
+
+    const lightSide = headSide * -0.4 + (rng() - 0.5) * 0.4;
+    let lx = lightSide, ly = -0.6, lz = 0.8; const ln = Math.hypot(lx, ly, lz);
+    const light = [lx / ln, ly / ln, lz / ln];
+
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const b of balls) {
+      if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.r) || b.r <= 0) continue;
+      minX = Math.min(minX, b.x - b.r); maxX = Math.max(maxX, b.x + b.r);
+      minY = Math.min(minY, b.y - b.r); maxY = Math.max(maxY, b.y + b.r);
+    }
+    if (!isFinite(minX) || maxX <= minX || maxY <= minY) {
+      balls.length = 0; balls.push({ x: 0, y: 0, r: 1, strength: 1, kind: 'core' });
+      minX = -1; maxX = 1; minY = -1; maxY = 1;
+    }
+    return { seed, strangeness, balls, eyes, orifices, hairPatches, skin, palette, light,
+      head, bbox: { minX, maxX, minY, maxY } };
+  }
+
+  // ---- box blur on Float32 grid ------------------------------------------
+  function boxBlur(src, dst, W, H, r, horizontal) {
+    const norm = 1 / (2 * r + 1);
+    if (horizontal) {
+      for (let y = 0; y < H; y++) {
+        let acc = 0; const row = y * W;
+        for (let i = -r; i <= r; i++) acc += src[row + clamp(i, 0, W - 1)];
+        for (let x = 0; x < W; x++) {
+          dst[row + x] = acc * norm;
+          acc += src[row + clamp(x + r + 1, 0, W - 1)] - src[row + clamp(x - r, 0, W - 1)];
+        }
+      }
+    } else {
+      for (let x = 0; x < W; x++) {
+        let acc = 0;
+        for (let i = -r; i <= r; i++) acc += src[clamp(i, 0, H - 1) * W + x];
+        for (let y = 0; y < H; y++) {
+          dst[y * W + x] = acc * norm;
+          acc += src[clamp(y + r + 1, 0, H - 1) * W + x] - src[clamp(y - r, 0, H - 1) * W + x];
+        }
+      }
+    }
+  }
+
+  // ---- main render --------------------------------------------------------
+  function render(W, H, seed, opts) {
+    opts = opts || {};
+    const strangeness = opts.strangeness == null ? 0.5 : clamp(opts.strangeness, 0, 1);
+    const transparent = !!opts.transparent;          // alpha-cut creature, no baked gallery bg
+    const skipEyes = opts.skipEyes != null ? !!opts.skipEyes : transparent; // live eyes for the rig
+    const spec = makeSpec(seed >>> 0, strangeness, opts.palette || 'auto');
+    const out = new Uint8ClampedArray(W * H * 4);
+    const { balls, bbox, palette, light, skin } = spec;
+    const noise = makeNoise(skin.noiseSeed);
+
+    const bw = Math.max(1e-3, bbox.maxX - bbox.minX), bh = Math.max(1e-3, bbox.maxY - bbox.minY);
+    const scale = Math.min((W * 0.62) / bw, (H * 0.66) / bh);
+    const bcx = (bbox.minX + bbox.maxX) / 2, bcy = (bbox.minY + bbox.maxY) / 2;
+    const ox = W / 2 - bcx * scale, oy = H * 0.52 - bcy * scale;
+    const toWX = (px) => (px - ox) / scale, toWY = (py) => (py - oy) / scale;
+    const groundY = oy + bbox.maxY * scale;
+
+    // PASS A: field. Influence radius R = 1.85*r (wide) so neighbouring masses
+    // blend into one grown silhouette. Surface sits ~r at threshold T.
+    const F = new Float32Array(W * H);
+    const INFL = 1.85;
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      const sx = ox + b.x * scale, sy = oy + b.y * scale, sr = b.r * scale;
+      if (sr <= 0) continue;
+      const R = sr * INFL, R2 = R * R, st = b.strength;
+      const x0 = Math.max(0, Math.floor(sx - R)), x1 = Math.min(W - 1, Math.ceil(sx + R));
+      const y0 = Math.max(0, Math.floor(sy - R)), y1 = Math.min(H - 1, Math.ceil(sy + R));
+      for (let y = y0; y <= y1; y++) {
+        const dy = y - sy, dy2 = dy * dy, row = y * W;
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - sx, d2 = (dx * dx + dy2) / R2;
+          if (d2 < 1) { const c = 1 - d2; F[row + x] += st * c * c; }
+        }
+      }
+    }
+    const T = 0.5;
+
+    // orifice recess applied into the field (carve) — softens & darkens later via AO
+    for (const orf of spec.orifices) {
+      const sx = ox + orf.x * scale, sy = oy + orf.y * scale;
+      const rx = Math.max(2, orf.rx * scale), ry = Math.max(1.5, orf.ry * scale);
+      const ca = Math.cos(orf.rot), sa = Math.sin(orf.rot);
+      const rr = Math.ceil(Math.max(rx, ry)) + 2;
+      const x0 = Math.max(0, (sx - rr) | 0), x1 = Math.min(W - 1, (sx + rr) | 0);
+      const y0 = Math.max(0, (sy - rr) | 0), y1 = Math.min(H - 1, (sy + rr) | 0);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const dx = x - sx, dy = y - sy;
+        const u = (dx * ca + dy * sa) / rx, v = (-dx * sa + dy * ca) / ry;
+        const d = u * u + v * v;
+        if (d < 1) F[y * W + x] *= mix(0.25, 1, smoothstep(0, 1, d));
+      }
+    }
+
+    // extra feature recesses (mouth, eye sockets) — real concavity baked into
+    // the field so lighting, AO and the silhouette genuinely dip there
+    if (opts.carve) for (let ci = 0; ci < opts.carve.length; ci++) {
+      const c = opts.carve[ci];
+      const sx = ox + c.x * scale, sy = oy + c.y * scale;
+      const rx = Math.max(2, c.rx * scale), ry = Math.max(1.5, c.ry * scale);
+      const ca = Math.cos(c.rot || 0), sa = Math.sin(c.rot || 0);
+      const dep = c.depth == null ? 0.2 : c.depth;     // center multiplier; lower = deeper
+      const rr = Math.ceil(Math.max(rx, ry)) + 2;
+      const x0 = Math.max(0, (sx - rr) | 0), x1 = Math.min(W - 1, (sx + rr) | 0);
+      const y0 = Math.max(0, (sy - rr) | 0), y1 = Math.min(H - 1, (sy + rr) | 0);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const dx = x - sx, dy = y - sy;
+        const u = (dx * ca + dy * sa) / rx, v = (-dx * sa + dy * ca) / ry;
+        const d = u * u + v * v;
+        if (d < 1) F[y * W + x] *= mix(dep, 1, smoothstep(0, 1, d));
+      }
+    }
+
+    // PASS B: height field — h = sqrt(f-T) keeps each fleshy lobe's volume and
+    // dips into valleys where masses join (becomes a fold under AO).
+    const Hf = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      const wy = toWY(y);
+      for (let x = 0; x < W; x++) {
+        const f = F[y * W + x]; if (f <= T) continue;
+        const wx = toWX(x);
+        let h = Math.sqrt(f - T);
+        const formMask = smoothstep(0.04, 0.5, h);          // less texture on thin rim
+        const fold = noise.fbm(wx * skin.foldScale, wy * skin.foldScale, 4, 2, 0.55) - 0.5;
+        const wrink = noise.fbm(wx * skin.wrinkleScale, wy * skin.wrinkleScale, 3, 2, 0.5) - 0.5;
+        const pore = noise.fbm(wx * skin.poreScale, wy * skin.poreScale, 2, 2, 0.5) - 0.5;
+        h += (fold * skin.foldAmt + wrink * skin.wrinkleAmt) * formMask + pore * skin.poreAmt * formMask;
+        Hf[y * W + x] = h;
+      }
+    }
+
+    // AO via blurred height
+    const blurR = Math.max(2, (Math.min(W, H) / 110) | 0);
+    const tmp = new Float32Array(W * H), Hb = new Float32Array(W * H);
+    boxBlur(Hf, tmp, W, H, blurR, true); boxBlur(tmp, Hb, W, H, blurR, false);
+
+    // lighting constants
+    const Lr = light[0], Lg = light[1], Lz = light[2];
+    let hvx = Lr, hvy = Lg, hvz = Lz + 1; const hn = Math.hypot(hvx, hvy, hvz);
+    hvx /= hn; hvy /= hn; hvz /= hn;
+    const bumpScale = scale * 0.62;
+
+    const cxpx = W / 2, cypx = H / 2, maxR = Math.hypot(cxpx, cypx);
+    const wallTop = [0.30, 0.285, 0.275], wallBot = [0.205, 0.197, 0.196], groundTone = [0.155, 0.148, 0.147];
+
+    // PASS C: compose body + background
+    for (let y = 0; y < H; y++) {
+      const vGrad = y / H;
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x, o = idx * 4;
+        // background
+        let bg0 = mix(wallTop[0], wallBot[0], vGrad), bg1 = mix(wallTop[1], wallBot[1], vGrad), bg2 = mix(wallTop[2], wallBot[2], vGrad);
+        if (y > groundY) { const gt = smoothstep(0, 44, y - groundY);
+          bg0 = mix(bg0, groundTone[0], gt); bg1 = mix(bg1, groundTone[1], gt); bg2 = mix(bg2, groundTone[2], gt); }
+        if (y > groundY - 34) {
+          const sgx = (x - W / 2) / (W * 0.21), sgy = (y - (groundY + H * 0.015)) / (H * 0.05);
+          const sh = Math.exp(-(sgx * sgx + sgy * sgy) * 1.4) * 0.5;
+          bg0 *= (1 - sh); bg1 *= (1 - sh); bg2 *= (1 - sh);
+        }
+
+        const f = F[idx];
+        const dvx = x - cxpx, dvy = y - cypx, vd = Math.hypot(dvx, dvy) / maxR;
+        if (f <= T) {
+          if (transparent) { out[o] = 0; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = 0; continue; }
+          const vig = 1 - 0.55 * Math.pow(vd, 2.2);
+          out[o] = bg0 * vig * 255; out[o + 1] = bg1 * vig * 255; out[o + 2] = bg2 * vig * 255; out[o + 3] = 255;
+          continue;
+        }
+        const t = clamp((f - T) / (1 - T), 0, 1);
+        const edge = smoothstep(0, 0.12, f - T);            // rim anti-alias on field
+
+        const hl = Hf[idx - 1] || 0, hr = Hf[idx + 1] || 0, hu = Hf[idx - W] || 0, hd = Hf[idx + W] || 0;
+        let nx = (hl - hr) * bumpScale * 0.5, ny = (hu - hd) * bumpScale * 0.5, nz = 1;
+        const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+
+        let diff = Math.pow((nx * Lr + ny * Lg + nz * Lz) * 0.5 + 0.5, 1.5);
+        const ao = clamp(1 - (Hb[idx] - Hf[idx]) * 5.0, 0.30, 1);
+        // thinness measured from the field rim only (independent of interior bulk)
+        const thin = clamp(1 - (f - T) / 0.55, 0, 1);
+        const rimDim = smoothstep(0, 0.07, f - T);          // darker at extreme silhouette
+        const sss = Math.pow(thin, 2.6) * 0.6 * rimDim;
+
+        let cr = mix(palette.shadowCol[0], palette.base[0], diff);
+        let cg = mix(palette.shadowCol[1], palette.base[1], diff);
+        let cb = mix(palette.shadowCol[2], palette.base[2], diff);
+        cr = mix(palette.shadowCol[0], cr, ao); cg = mix(palette.shadowCol[1], cg, ao); cb = mix(palette.shadowCol[2], cb, ao);
+        // warm subsurface, gentle
+        cr += palette.sss[0] * sss * 0.42; cg += palette.sss[1] * sss * 0.22; cb += palette.sss[2] * sss * 0.20;
+
+        if (sss > 0.05) {
+          const wx = toWX(x), wy = toWY(y);
+          let vn = noise.fbm(wx * 6 + 11, wy * 6 - 4, 3, 2.1, 0.55);
+          vn = 1 - Math.abs(vn - 0.5) * 2;
+          const vmask = smoothstep(0.86, 0.98, vn) * sss * 0.4;
+          cr = mix(cr, palette.vein[0], vmask); cg = mix(cg, palette.vein[1], vmask); cb = mix(cb, palette.vein[2], vmask);
+        }
+        let ndh = nx * hvx + ny * hvy + nz * hvz; if (ndh < 0) ndh = 0;
+        const spec = (Math.pow(ndh, 48) * 0.20 + Math.pow(ndh, 6) * 0.03) * ao;
+        cr += spec; cg += spec; cb += spec;
+
+        const vig = 1 - 0.30 * Math.pow(vd, 2.4);
+        const rimShade = 0.72 + 0.28 * smoothstep(0, 0.10, f - T); // terminator at edge
+        cr *= vig * rimShade; cg *= vig * rimShade; cb *= vig * rimShade;
+
+        const a = edge;
+        if (transparent) {
+          out[o] = clamp(cr, 0, 1) * 255;
+          out[o + 1] = clamp(cg, 0, 1) * 255;
+          out[o + 2] = clamp(cb, 0, 1) * 255;
+          out[o + 3] = clamp(a, 0, 1) * 255;
+        } else {
+          out[o] = clamp(mix(bg0, cr, a), 0, 1) * 255;
+          out[o + 1] = clamp(mix(bg1, cg, a), 0, 1) * 255;
+          out[o + 2] = clamp(mix(bg2, cb, a), 0, 1) * 255;
+          out[o + 3] = 255;
+        }
+      }
+    }
+
+    // PASS D: eyes (wet sunken spheres) ------------------------------------
+    if (!skipEyes) for (const eye of spec.eyes) {
+      const sx = ox + eye.x * scale, sy = oy + eye.y * scale, sr = Math.max(3, eye.r * scale);
+      // only render if it sits on the body
+      if (sx < 0 || sx >= W || sy < 0 || sy >= H) continue;
+      if (F[((sy | 0) * W + (sx | 0))] <= T) continue;
+      const socket = sr * 1.7;
+      const x0 = Math.max(0, (sx - socket) | 0), x1 = Math.min(W - 1, (sx + socket) | 0);
+      const y0 = Math.max(0, (sy - socket) | 0), y1 = Math.min(H - 1, (sy + socket) | 0);
+      const lidTop = sy - sr * (eye.openness);          // upper lid line
+      const lidBot = sy + sr * (eye.openness * 0.85);   // lower lid line
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const idx = y * W + x;
+        if (F[idx] <= T) continue;
+        const dx = x - sx, dy = y - sy, d = Math.hypot(dx, dy);
+        const o = idx * 4;
+        // socket shadow ring (sunken, mournful)
+        if (d < socket) {
+          const sk = smoothstep(socket, sr * 0.9, d) * 0.5;
+          out[o] *= (1 - sk); out[o + 1] *= (1 - sk); out[o + 2] *= (1 - sk);
+        }
+        if (d > sr) continue;
+        // lids: outside the open band -> skin fold (skip eyeball)
+        if (y < lidTop || y > lidBot) {
+          const fold = 0.35;
+          out[o] *= (1 - fold); out[o + 1] *= (1 - fold); out[o + 2] *= (1 - fold);
+          continue;
+        }
+        // eyeball sphere normal
+        const nzz = Math.sqrt(Math.max(0, 1 - (d / sr) * (d / sr)));
+        const exn = dx / sr, eyn = dy / sr;
+        // wet dark sclera->iris
+        const irisR = sr * 0.62;
+        let baseCol;
+        const distI = Math.hypot(dx - eye.glance * sr * 0.4, dy + eye.glanceY * sr * 0.2);
+        if (distI < irisR) {
+          // iris/pupil: very dark, faint warmth
+          const pupil = smoothstep(irisR, irisR * 0.35, distI);
+          baseCol = [mix(0.10, 0.02, pupil), mix(0.07, 0.015, pupil), mix(0.06, 0.02, pupil)];
+        } else {
+          // moist sclera, not white — yellowish grey, veined
+          baseCol = [0.40, 0.36, 0.33];
+        }
+        // shade by sphere normal against light
+        const dl = clamp(exn * light[0] + eyn * light[1] + nzz * light[2], 0, 1) * 0.5 + 0.5;
+        let rr = baseCol[0] * dl, gg = baseCol[1] * dl, bb = baseCol[2] * dl;
+        // specular glint (wet) — small, offset up-left
+        const gx = dx + sr * 0.32, gy = dy + sr * 0.34;
+        const gl = Math.exp(-(gx * gx + gy * gy) / (sr * sr * 0.05)) * 0.9;
+        rr += gl; gg += gl; bb += gl;
+        // rim wetness
+        const rim = smoothstep(sr * 0.78, sr, d) * 0.25;
+        rr = mix(rr, 0.5, rim * 0.3);
+        out[o] = clamp(rr, 0, 1) * 255; out[o + 1] = clamp(gg, 0, 1) * 255; out[o + 2] = clamp(bb, 0, 1) * 255;
+      }
+    }
+
+    // PASS E: sparse hair (thin filaments) ---------------------------------
+    for (const hp of spec.hairPatches) {
+      const hr = mulberry32(hp.seed);
+      const sx = ox + hp.x * scale, sy = oy + hp.y * scale, sR = hp.r * scale;
+      const count = (hp.density * sR * 0.5) | 0;
+      for (let i = 0; i < count; i++) {
+        const a = hr() * Math.PI * 2, rad = Math.sqrt(hr()) * sR;
+        let px = sx + Math.cos(a) * rad, py = sy + Math.sin(a) * rad;
+        if (px < 1 || px >= W - 1 || py < 1 || py >= H - 1) continue;
+        if (F[((py | 0) * W + (px | 0))] <= T) continue;
+        const len = hp.len * scale * (0.5 + hr());
+        let ang = Math.PI * 0.5 + (hr() - 0.5) * 1.4;      // mostly downward
+        const curve = (hr() - 0.5) * 0.15;
+        const steps = Math.max(3, (len / 1.2) | 0);
+        const shade = 0.18 + hr() * 0.12;
+        for (let s = 0; s < steps; s++) {
+          ang += curve;
+          px += Math.cos(ang) * 1.2; py += Math.sin(ang) * 1.2;
+          const xi = px | 0, yi = py | 0;
+          if (xi < 0 || xi >= W || yi < 0 || yi >= H) break;
+          const o = (yi * W + xi) * 4;
+          const fade = 1 - s / steps;
+          const k = shade * fade;
+          out[o] *= (1 - k); out[o + 1] *= (1 - k); out[o + 2] *= (1 - k);
+        }
+      }
+    }
+
+    return { out, spec, W, H, xform: { scale, ox, oy, groundY } };
+  }
+
+  // ---- localized re-bake: render ONE sub-rectangle through the identical
+  // pipeline (seam-free) so a feature recess can be re-carved per frame without
+  // re-baking the whole creature. Returns transparent straight-alpha pixels for
+  // the inner rect [x0,y0,w,h]. opts.carve drives the (animated) recess. -------
+  function renderRegion(W, H, seed, opts, x0, y0, w, h) {
+    opts = opts || {};
+    const strangeness = opts.strangeness == null ? 0.5 : clamp(opts.strangeness, 0, 1);
+    const spec = makeSpec(seed >>> 0, strangeness, opts.palette || 'auto');
+    const { balls, bbox, palette, light, skin } = spec;
+    const noise = makeNoise(skin.noiseSeed);
+    const bw = Math.max(1e-3, bbox.maxX - bbox.minX), bh = Math.max(1e-3, bbox.maxY - bbox.minY);
+    const scale = Math.min((W * 0.62) / bw, (H * 0.66) / bh);
+    const bcx = (bbox.minX + bbox.maxX) / 2, bcy = (bbox.minY + bbox.maxY) / 2;
+    const ox = W / 2 - bcx * scale, oy = H * 0.52 - bcy * scale;
+    const toWX = (px) => (px - ox) / scale, toWY = (py) => (py - oy) / scale;
+    const T = 0.5, INFL = 1.85;
+    const blurR = Math.max(2, (Math.min(W, H) / 110) | 0), M = blurR + 2;
+    const BX0 = Math.max(0, (x0 - M) | 0), BY0 = Math.max(0, (y0 - M) | 0);
+    const BX1 = Math.min(W, (x0 + w + M) | 0), BY1 = Math.min(H, (y0 + h + M) | 0);
+    const RW = BX1 - BX0, RH = BY1 - BY0;
+    const out = new Uint8ClampedArray(Math.max(1, w * h * 4));
+    if (RW <= 0 || RH <= 0) return { out, x0, y0, w, h };
+    function carveInto(F, list, Dbuf) {
+      for (let ci = 0; ci < list.length; ci++) {
+        const c = list[ci]; const sx = ox + c.x * scale, sy = oy + c.y * scale;
+        const rx = Math.max(2, c.rx * scale), ry = Math.max(1.5, c.ry * scale);
+        const ca = Math.cos(c.rot || 0), sa = Math.sin(c.rot || 0);
+        const dep = c.depth == null ? 0.2 : c.depth, fl = c.floor, dk = c.dark || 0;
+        const rr = Math.ceil(Math.max(rx, ry)) + 2;
+        const cx0 = Math.max(BX0, (sx - rr) | 0), cx1 = Math.min(BX1 - 1, (sx + rr) | 0);
+        const cy0 = Math.max(BY0, (sy - rr) | 0), cy1 = Math.min(BY1 - 1, (sy + rr) | 0);
+        for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) {
+          const dx = x - sx, dy = y - sy; const u = (dx * ca + dy * sa) / rx, v = (-dx * sa + dy * ca) / ry;
+          const d = u * u + v * v; if (d < 1) { const li = (y - BY0) * RW + (x - BX0); let nf = F[li] * mix(dep, 1, smoothstep(0, 1, d)); if (fl != null && F[li] > fl && nf < fl) nf = fl; F[li] = nf;
+            if (Dbuf && dk) { const dd = dk * (1 - smoothstep(0.55, 1, Math.sqrt(d))); if (dd > Dbuf[li]) Dbuf[li] = dd; } } }
+      }
+    }
+    // static base field (balls + orifices) and skin-noise — cached across frames;
+    // only the animated carve (mouth) changes per frame
+    var nc = opts.noiseCache, baseF, noiseField;
+    if (nc && nc.baseF && nc.data && nc.w === RW && nc.h === RH && nc.bx === BX0 && nc.by === BY0) {
+      baseF = nc.baseF; noiseField = nc.data;
+    } else {
+      baseF = new Float32Array(RW * RH);
+      for (let i = 0; i < balls.length; i++) {
+        const b = balls[i]; const sx = ox + b.x * scale, sy = oy + b.y * scale, sr = b.r * scale;
+        if (sr <= 0) continue; const R = sr * INFL, R2 = R * R, st = b.strength;
+        const ax0 = Math.max(BX0, Math.floor(sx - R)), ax1 = Math.min(BX1 - 1, Math.ceil(sx + R));
+        const ay0 = Math.max(BY0, Math.floor(sy - R)), ay1 = Math.min(BY1 - 1, Math.ceil(sy + R));
+        for (let y = ay0; y <= ay1; y++) { const dy = y - sy, dy2 = dy * dy, row = (y - BY0) * RW - BX0;
+          for (let x = ax0; x <= ax1; x++) { const dx = x - sx, d2 = (dx * dx + dy2) / R2; if (d2 < 1) { const c = 1 - d2; baseF[row + x] += st * c * c; } } }
+      }
+      if (spec.orifices && spec.orifices.length) carveInto(baseF, spec.orifices.map(o => ({ x: o.x, y: o.y, rx: o.rx, ry: o.ry, rot: o.rot, depth: 0.25 })));
+      noiseField = new Float32Array(RW * RH);
+      for (let y = BY0; y < BY1; y++) { const wy = toWY(y);
+        for (let x = BX0; x < BX1; x++) {
+          const wx = toWX(x);
+          const fold = noise.fbm(wx * skin.foldScale, wy * skin.foldScale, 4, 2, 0.55) - 0.5;
+          const wrink = noise.fbm(wx * skin.wrinkleScale, wy * skin.wrinkleScale, 3, 2, 0.5) - 0.5;
+          const pore = noise.fbm(wx * skin.poreScale, wy * skin.poreScale, 2, 2, 0.5) - 0.5;
+          noiseField[(y - BY0) * RW + (x - BX0)] = fold * skin.foldAmt + wrink * skin.wrinkleAmt + pore * skin.poreAmt;
+        } }
+      if (nc) { nc.baseF = baseF; nc.data = noiseField; nc.w = RW; nc.h = RH; nc.bx = BX0; nc.by = BY0; }
+    }
+    const F = baseF.slice();
+    const D = new Float32Array(RW * RH);
+    if (opts.carve) carveInto(F, opts.carve, D);
+    const Hf = new Float32Array(RW * RH);
+    for (let y = BY0; y < BY1; y++) {
+      for (let x = BX0; x < BX1; x++) { const li = (y - BY0) * RW + (x - BX0); const f = F[li]; if (f <= T) continue;
+        let hh = Math.sqrt(f - T); const formMask = smoothstep(0.04, 0.5, hh);
+        hh += noiseField[li] * formMask; Hf[li] = hh; } }
+    const tmp = new Float32Array(RW * RH), Hb = new Float32Array(RW * RH);
+    boxBlur(Hf, tmp, RW, RH, blurR, true); boxBlur(tmp, Hb, RW, RH, blurR, false);
+    const Lr = light[0], Lg = light[1], Lz = light[2];
+    let hvx = Lr, hvy = Lg, hvz = Lz + 1; const hn = Math.hypot(hvx, hvy, hvz); hvx /= hn; hvy /= hn; hvz /= hn;
+    const bumpScale = scale * 0.62, cxpx = W / 2, cypx = H / 2, maxR = Math.hypot(cxpx, cypx);
+    for (let yy = 0; yy < h; yy++) { const gy = y0 + yy; if (gy < BY0 || gy >= BY1) continue;
+      for (let xx = 0; xx < w; xx++) { const gx = x0 + xx; if (gx < BX0 || gx >= BX1) continue;
+        const li = (gy - BY0) * RW + (gx - BX0), oo = (yy * w + xx) * 4; const f = F[li]; if (f <= T) continue;
+        const edge = smoothstep(0, 0.12, f - T);
+        const hl = Hf[li - 1] || 0, hr2 = Hf[li + 1] || 0, hu = Hf[li - RW] || 0, hd = Hf[li + RW] || 0;
+        let nx = (hl - hr2) * bumpScale * 0.5, ny = (hu - hd) * bumpScale * 0.5, nz = 1; const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+        let diff = Math.pow((nx * Lr + ny * Lg + nz * Lz) * 0.5 + 0.5, 1.5);
+        const ao = clamp(1 - (Hb[li] - Hf[li]) * 5.0, 0.30, 1);
+        const thin = clamp(1 - (f - T) / 0.55, 0, 1), rimDim = smoothstep(0, 0.07, f - T), sss = Math.pow(thin, 2.6) * 0.6 * rimDim;
+        let cr = mix(palette.shadowCol[0], palette.base[0], diff), cg = mix(palette.shadowCol[1], palette.base[1], diff), cb = mix(palette.shadowCol[2], palette.base[2], diff);
+        cr = mix(palette.shadowCol[0], cr, ao); cg = mix(palette.shadowCol[1], cg, ao); cb = mix(palette.shadowCol[2], cb, ao);
+        cr += palette.sss[0] * sss * 0.42; cg += palette.sss[1] * sss * 0.22; cb += palette.sss[2] * sss * 0.20;
+        if (sss > 0.05) { const wx = toWX(gx), wy = toWY(gy); let vn = noise.fbm(wx * 6 + 11, wy * 6 - 4, 3, 2.1, 0.55); vn = 1 - Math.abs(vn - 0.5) * 2; const vmask = smoothstep(0.86, 0.98, vn) * sss * 0.4; cr = mix(cr, palette.vein[0], vmask); cg = mix(cg, palette.vein[1], vmask); cb = mix(cb, palette.vein[2], vmask); }
+        let ndh = nx * hvx + ny * hvy + nz * hvz; if (ndh < 0) ndh = 0; const sp = (Math.pow(ndh, 48) * 0.20 + Math.pow(ndh, 6) * 0.03) * ao; cr += sp; cg += sp; cb += sp;
+        const dvx = gx - cxpx, dvy = gy - cypx, vd = Math.hypot(dvx, dvy) / maxR;
+        const vig = 1 - 0.30 * Math.pow(vd, 2.4), rimShade = 0.72 + 0.28 * smoothstep(0, 0.10, f - T);
+        cr *= vig * rimShade; cg *= vig * rimShade; cb *= vig * rimShade;
+        const dk = D[li];                                  // recess interior -> dark throat
+        if (dk > 0) { const kd = 1 - dk * 0.93; cr *= kd; cg *= kd; cb = cb * kd; cr += 0.012 * dk; }
+        out[oo] = clamp(cr, 0, 1) * 255; out[oo + 1] = clamp(cg, 0, 1) * 255; out[oo + 2] = clamp(cb, 0, 1) * 255; out[oo + 3] = clamp(edge, 0, 1) * 255;
+      } }
+    return { out, x0, y0, w, h };
+  }
+
+  const API = { render, renderRegion, makeSpec, makePalette, mulberry32, makeNoise };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  global.AlienCore = API;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+// ============================================================================
+// Alien Rig — turns a baked (transparent) body render into an animated face.
+// The expensive flesh is rendered ONCE by core.js; this module draws the eyes,
+// nose, mouth and ears live with canvas 2D every frame, plus the autonomous
+// "alive" idle motion (hover, breath, gaze, blink, sniff, ear-twitch, mood).
+// Pure of any timers: AlienRig.pose(rig, tSeconds) is a deterministic function
+// of time, so the app samples it each frame and the thumbnail samples one pose.
+// ============================================================================
+(function (global) {
+  'use strict';
+
+  var clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
+  var mix = function (a, b, t) { return a + (b - a) * t; };
+  var sstep = function (e0, e1, x) { var t = clamp((x - e0) / (e1 - e0 || 1e-6), 0, 1); return t * t * (3 - 2 * t); };
+  var TAU = Math.PI * 2;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hash1(n) {
+    n = n | 0; n = (n ^ 61) ^ (n >>> 16); n = (n + (n << 3)) | 0;
+    n = n ^ (n >>> 4); n = Math.imul(n, 0x27d4eb2d); n = n ^ (n >>> 15);
+    return (n >>> 0) / 4294967296;
+  }
+  function rgba(c, a) {
+    return 'rgba(' + Math.round(clamp(c[0], 0, 1) * 255) + ',' + Math.round(clamp(c[1], 0, 1) * 255) +
+      ',' + Math.round(clamp(c[2], 0, 1) * 255) + ',' + (a == null ? 1 : a) + ')';
+  }
+  function shade(c, m) { return [c[0] * m, c[1] * m, c[2] * m]; }
+  function lift(c, m) { return [mix(c[0], 1, m), mix(c[1], 1, m), mix(c[2], 1, m)]; }
+
+  // --- build a rig (pixel-space feature layout) from a core render result ----
+  function build(res) {
+    var spec = res.spec, xf = res.xform, P = spec.palette, s = spec.strangeness;
+    var bb = spec.bbox, scale = xf.scale, W = res.W, Hh = res.H, out = res.out;
+    var minXp = xf.ox + bb.minX * scale, maxXp = xf.ox + bb.maxX * scale;
+    var minYp = xf.oy + bb.minY * scale, maxYp = xf.oy + bb.maxY * scale;
+    var creatureW = Math.max(1, maxXp - minXp), creatureH = Math.max(1, maxYp - minYp);
+    var unit = Math.min(creatureW, creatureH);
+    var bcx = (minXp + maxXp) / 2, bcy = (minYp + maxYp) / 2;
+    var rng = mulberry32((spec.seed ^ 0x5bd1e995) >>> 0);
+
+    var skin = P.base, skinDk = P.shadowCol, inner = shade(P.shadowCol, 0.55);
+    var wet = [mix(P.base[0], 1, 0.55), mix(P.base[1], 0.97, 0.5), mix(P.base[2], 0.9, 0.45)];
+    var L = spec.light; var lx = L[0], ly = L[1];
+
+    // ---- sample interior points of the baked flesh (alpha map) -------------
+    var step = Math.max(3, (unit * 0.035) | 0), pts = [];
+    function alphaAt(px, py) {
+      px |= 0; py |= 0; if (px < 0 || py < 0 || px >= W || py >= Hh) return 0;
+      return out[(py * W + px) * 4 + 3];
+    }
+    for (var y = Math.max(0, minYp | 0); y < Math.min(Hh, maxYp); y += step)
+      for (var x = Math.max(0, minXp | 0); x < Math.min(W, maxXp); x += step)
+        if (alphaAt(x, y) > 190) pts.push([x, y]);
+    if (pts.length < 6) pts = [[bcx, bcy]];
+
+    // is there flesh all around this point at radius r? (keeps features off the rim)
+    function fleshAround(px, py, r) {
+      var ok = 0; for (var a = 0; a < 6; a++) { var g = a / 6 * TAU; if (alphaAt(px + Math.cos(g) * r, py + Math.sin(g) * r) > 110) ok++; } return ok >= 5; }
+    var placed = [];
+    // pick a point whose FULL footprint (foot) clears every placed footprint; null if none
+    function pick(foot, keepInner) {
+      for (var tries = 0; tries < 90; tries++) {
+        var pt = pts[(rng() * pts.length) | 0], good = true;
+        for (var i = 0; i < placed.length; i++) { var dx = pt[0] - placed[i][0], dy = pt[1] - placed[i][1]; if (Math.hypot(dx, dy) < (placed[i][2] + foot) * 1.02) { good = false; break; } }
+        if (good && (!keepInner || fleshAround(pt[0], pt[1], foot * 0.7))) { placed.push([pt[0], pt[1], foot]); return pt; }
+      }
+      return null;
+    }
+    // place with shrink-on-failure: returns {pt, k} where k is the size multiplier kept, or null
+    function place(foot, keepInner) {
+      var f = foot;
+      for (var a = 0; a < 4; a++) { var pt = pick(f, keepInner); if (pt) return { pt: pt, k: f / foot }; f *= 0.76; }
+      return null;
+    }
+
+    var irisFam = [[40, 0.55, 0.28], [26, 0.5, 0.24], [60, 0.4, 0.26], [15, 0.5, 0.24], [33, 0.45, 0.22], [200, 0.3, 0.30]];
+    function pickIris() { var idx = rng() < 0.9 ? (rng() * 5) | 0 : 5; var f = irisFam[idx]; return hsl(f[0] + (rng() - 0.5) * 12, f[1], f[2]); }
+    var irisShared = pickIris();
+    function toModel(px, py) { return [(px - xf.ox) / scale, (py - xf.oy) / scale]; }
+    var carves = [];
+
+    // ---- mouth FIRST so it claims its (often large) space -------------------
+    // the mouth is NOT painted and NOT baked statically; it is a recess re-carved
+    // every frame into a small re-baked patch (see AlienRig.mouthCarveAt + renderRegion)
+    var mw = unit * (rng() < 0.32 ? mix(0.5, 0.82, rng()) : mix(0.2, 0.46, rng()));
+    var mouth = null, mouthCarve = null, mouthRect = null;
+    var mPlace = place(mw * 0.55, true);          // footprint = long half-axis
+    if (mPlace) {
+      mw *= mPlace.k;
+      mouth = { cx: mPlace.pt[0], cy: mPlace.pt[1], w: mw, rot: (rng() - 0.5) * TAU * 0.7 };
+      var mm = toModel(mouth.cx, mouth.cy);
+      mouthCarve = { x: mm[0], y: mm[1], rxMax: (mw * 0.55) / scale, rot: mouth.rot };
+      var ext = Math.ceil(mw * 0.62) + 6;          // region big enough for the open hole at any rotation
+      mouthRect = { x0: Math.round(mouth.cx - ext), y0: Math.round(mouth.cy - ext), w: ext * 2, h: ext * 2 };
+    }
+
+    // ---- eyes: scattered, varied size, freely rotated, largest first --------
+    var eyeN = 2 + ((rng() * (1 + 3.5 * s)) | 0);
+    var eyes = [];
+    for (var e = 0; e < eyeN; e++) {
+      var R = unit * mix(0.055, 0.15, rng()) * (e === 0 ? 1.25 : 1);
+      var ep2 = place(R * 1.5, true);             // footprint includes lids/socket
+      if (!ep2) continue;                          // no room -> simply fewer eyes (never overlap)
+      R *= ep2.k;
+      eyes.push({
+        cx: ep2.pt[0], cy: ep2.pt[1], R: R, ry: mix(0.66, 0.96, rng()),
+        tilt: (rng() - 0.5) * 2.4,
+        lidTop: mix(0.14, 0.34, rng()) + 0.06 * s,
+        iris: rng() < 0.28 ? pickIris() : irisShared,
+        irisR: mix(0.55, 0.70, rng()), pupilR: mix(0.40, 0.58, rng()),
+        bag: mix(0.08, 0.30, rng()), phase: rng() * TAU,
+        blinkSeed: (rng() * 1e6) | 0, blinkAvg: mix(2.0, 3.4, rng())
+      });
+      var em = toModel(ep2.pt[0], ep2.pt[1]);
+      carves.push({ x: em[0], y: em[1], rx: (R * 1.05) / scale, ry: (R * 1.05) / scale, rot: 0, depth: 0.5 });
+    }
+
+    // ---- nose(s) -----------------------------------------------------------
+    var noseN = 1 + ((s > 0.45 && rng() < 0.5) ? 1 : 0);
+    var noses = [];
+    for (var nn = 0; nn < noseN; nn++) {
+      var nw = unit * mix(0.05, 0.12, rng());
+      var npl = place(nw * 1.25, true);
+      if (!npl) continue;
+      nw *= npl.k;
+      noses.push({ cx: npl.pt[0], cy: npl.pt[1], w: nw, h: nw * mix(0.8, 1.35, rng()), type: rng() < 0.6 ? 'bulb' : 'flat', rot: rng() * TAU });
+    }
+    if (!mouth && eyes.length) {                   // guarantee a mouth even on a crowded body
+      var fm = eyes[0], mcx = fm.cx, mcy = fm.cy + fm.R * 2.4, fmw = unit * 0.3;
+      mouth = { cx: mcx, cy: mcy, w: fmw, rot: 0 };
+      var fmm = toModel(mcx, mcy);
+      mouthCarve = { x: fmm[0], y: fmm[1], rxMax: (fmw * 0.55) / scale, rot: 0 };
+      var fext = Math.ceil(fmw * 0.62) + 6;
+      mouthRect = { x0: Math.round(mcx - fext), y0: Math.round(mcy - fext), w: fext * 2, h: fext * 2 };
+    }
+
+    // ---- ears: sprout outward from arbitrary points on the silhouette ------
+    var earN = 1 + ((rng() * (1 + 2 * s)) | 0);
+    var ears = [];
+    for (var k = 0; k < earN; k++) {
+      var ept = pts[(rng() * pts.length) | 0];
+      var dx = ept[0] - bcx, dy = ept[1] - bcy, dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+      ears.push({
+        px: ept[0], py: ept[1], len: unit * mix(0.16, 0.5, rng()), wid: unit * mix(0.09, 0.22, rng()),
+        ang: Math.atan2(dx, -dy) + (rng() - 0.5) * 0.6,
+        droop: mix(0.1, 0.6, rng()), side: rng() < 0.5 ? -1 : 1, phase: rng() * TAU
+      });
+    }
+
+    return {
+      fs: unit, hr: unit * 0.32, cx: res.W / 2, cy: res.H * 0.52, W: res.W, H: res.H,
+      groundY: xf.groundY, seed: spec.seed, strange: s,
+      skin: skin, skinDk: skinDk, wet: wet, inner: inner, sss: P.sss, lx: lx, ly: ly,
+      eyes: eyes, noses: noses, mouth: mouth, ears: ears, carves: carves,
+      mouthCarve: mouthCarve, mouthRect: mouthRect
+    };
+  }
+
+  function hsl(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    var c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2, r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+    return [r + m, g + m, b + m];
+  }
+
+  // --- scheduled stochastic event (deterministic in t) ----------------------
+  // returns {e: envelope 0..1, h: per-event hash, age, fresh}
+  function event(seed, t, avg, dur) {
+    var best = 0, bh = 0, bage = 0, base = Math.floor(t / avg);
+    for (var i = base - 2; i <= base + 1; i++) {
+      var hi = hash1((i * 374761393) ^ seed);
+      var te = (i + (hi - 0.5) * 0.7) * avg;
+      var age = t - te;
+      if (age >= 0 && age < dur) {
+        var e = Math.sin(Math.PI * age / dur);
+        if (e > best) { best = e; bh = hash1((i ^ seed) * 668265263 >>> 0); bage = age; }
+      }
+    }
+    return { e: best, h: bh, age: bage };
+  }
+  // stepped target that holds then jumps (saccade-like), smoothly eased
+  function stepHold(seed, t, avg, moveDur, fn) {
+    var base = Math.floor(t / avg) + 2, gi = base, gt = 1e9;
+    for (var i = base; i >= base - 4; i--) {
+      var hi = hash1((i * 2246822519) ^ seed);
+      var te = (i + (hi - 0.5) * 0.6) * avg;
+      if (te <= t) { gi = i; gt = te; break; }
+    }
+    var cur = fn(gi), prev = fn(gi - 1);
+    var k = sstep(0, moveDur, t - gt);
+    return [mix(prev[0], cur[0], k), mix(prev[1], cur[1], k)];
+  }
+
+  // --- autonomous idle pose, deterministic function of time -----------------
+  function pose(rig, t) {
+    var sd = rig.seed >>> 0;
+    // hover — clearly visible buoyant float
+    var bobY = Math.sin(t * TAU * 0.22 + 0.4) * rig.hr * 0.16 + Math.sin(t * TAU * 0.37 + 1.3) * rig.hr * 0.05;
+    var sway = Math.sin(t * TAU * 0.14 + 0.7) * 0.05 + Math.sin(t * TAU * 0.06) * 0.025;
+    var jitterX = Math.sin(t * TAU * 0.9 + 1.1) * rig.hr * 0.01;
+    var jitterY = Math.sin(t * TAU * 0.75 + 2.0) * rig.hr * 0.01;
+    // breath — faster and deeper; drives the body and the nostrils
+    var br = Math.sin(t * TAU * 0.4);            // ~2.5s cycle
+    var inhale = Math.max(0, br);
+    var breathSY = 1 + 0.045 * br, breathSX = 1 - 0.03 * br;
+
+    // gaze — ALWAYS roving (layered sines) with periodic saccade jumps on top
+    var sacc = stepHold(sd ^ 0x9e1, t, 2.2, 0.10, function (i) {
+      var a = hash1((i ^ sd) * 40503) * TAU, r = 0.4 + 0.5 * hash1((i * 7 ^ sd) >>> 0);
+      return [Math.cos(a) * r, Math.sin(a) * r * 0.6];
+    });
+    var gazeX = clamp(0.55 * Math.sin(t * TAU * 0.31) + 0.25 * Math.sin(t * TAU * 0.53 + 1) + 0.4 * sacc[0], -1, 1);
+    var gazeY = clamp(0.40 * Math.sin(t * TAU * 0.27 + 2) + 0.20 * Math.sin(t * TAU * 0.61) + 0.3 * sacc[1], -1, 1);
+
+    // blink — frequent, per-eye independent, plus a shared full-face blink
+    var allBlink = event(sd ^ 0x223, t, 7.0, 0.28).e;
+    var blink = allBlink;
+    var blinks = null;
+    if (rig.eyes) {
+      blinks = [];
+      for (var bi = 0; bi < rig.eyes.length; bi++) {
+        var ey = rig.eyes[bi];
+        var own = event((sd ^ (ey.blinkSeed | 0)) >>> 0, t, ey.blinkAvg || 2.4, 0.18).e;
+        blinks.push(Math.max(own, allBlink));
+      }
+    }
+
+    // nostrils — continuously flaring with the breath, deeper sniffs on events
+    var sniffEvt = event(sd ^ 0x333, t, 5.0, 0.5).e;
+    var sniff = clamp(0.3 + 0.5 * inhale + 0.6 * sniffEvt, 0, 1.2);
+    var noseBob = -sniff * rig.fs * 0.05;
+
+    // mouth — continuous gentle mouthing, with frequent gapes and rarer yawns
+    var chew = 0.5 + 0.5 * Math.sin(t * TAU * 0.45 + 0.6);   // ~2.2s open/close
+    var gape = event(sd ^ 0x445, t, 5.5, 1.0).e;
+    var yawn = event(sd ^ 0x444, t, 13.0, 1.8).e;
+    var mouthOpen = clamp(0.08 + 0.16 * chew + 0.5 * gape + 0.85 * yawn, 0, 1);
+    var mouthCurve = Math.sin(t * TAU * 0.09) * 0.10;
+
+    // ears — always wiggling, with sharp twitches layered on
+    var ears = null;
+    if (rig.ears) {
+      ears = [];
+      for (var ei = 0; ei < rig.ears.length; ei++) {
+        var cont = Math.sin(t * TAU * (0.5 + 0.13 * ei) + ei * 1.7) * 0.09;
+        var tw = event((sd ^ (0x550 + ei * 131)) >>> 0, t, 4.0 + 0.5 * ei, 0.22);
+        ears.push(cont + tw.e * (tw.h < 0.5 ? -1 : 1) * 0.2);
+      }
+    }
+
+    // expression — faster mood drift + squint events
+    var mood = Math.sin(t * TAU * 0.11 + 0.3) * 0.6 + Math.sin(t * TAU * 0.034) * 0.4;
+    var squint = event(sd ^ 0x446, t, 8.0, 1.1).e;
+    var droop = clamp(0.06 + 0.14 * mood + 0.22 * squint, 0, 0.42);
+    var brow = mood * 0.3;
+
+    sway += gazeX * 0.02;
+
+    return {
+      bobY: bobY + jitterY, sway: sway, jitterX: jitterX, breathSX: breathSX, breathSY: breathSY,
+      gazeX: gazeX, gazeY: gazeY, blink: blink, blinks: blinks, droop: droop, brow: brow,
+      sniff: sniff, noseBob: noseBob, mouthOpen: mouthOpen, mouthCurve: mouthCurve + mouthOpen * 0.1,
+      ears: ears
+    };
+  }
+
+  // --- static gallery background (drawn once to its own canvas) --------------
+  function drawBackground(ctx, W, H) {
+    var g = ctx.createRadialGradient(W * 0.5, H * 0.38, 0, W * 0.5, H * 0.42, Math.max(W, H) * 0.75);
+    g.addColorStop(0, '#262320'); g.addColorStop(1, '#141210');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    var gy = H * 0.86;
+    var gg = ctx.createLinearGradient(0, gy - 40, 0, H);
+    gg.addColorStop(0, 'rgba(0,0,0,0)'); gg.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = gg; ctx.fillRect(0, gy - 40, W, H - gy + 40);
+    // soft vignette
+    var v = ctx.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.30, W / 2, H * 0.5, Math.max(W, H) * 0.72);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  }
+
+  // contact shadow on the ground, reacting to hover height (parallax)
+  function drawShadow(ctx, rig, p) {
+    var lift = -p.bobY / (rig.hr * 0.13);          // 0 rest .. ~1 high
+    var sy = rig.groundY + rig.hr * 0.18;
+    var sw = rig.hr * 1.5 * (1 - 0.12 * lift), sh = rig.hr * 0.26 * (1 - 0.12 * lift);
+    var a = clamp(0.42 * (1 - 0.30 * lift), 0, 1);
+    ctx.save();
+    var g = ctx.createRadialGradient(rig.cx, sy, 0, rig.cx, sy, sw);
+    g.addColorStop(0, 'rgba(0,0,0,' + a + ')'); g.addColorStop(0.7, 'rgba(0,0,0,' + a * 0.4 + ')');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.translate(rig.cx, sy); ctx.scale(1, sh / sw); ctx.translate(-rig.cx, -sy);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(rig.cx, sy, sw, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  // --- the creature: ears (behind) -> body bitmap -> mouth recess -> face ----
+  function draw(ctx, rig, body, p, mouthPatch) {
+    ctx.save();
+    ctx.translate(rig.cx + p.jitterX, rig.cy + p.bobY);
+    ctx.rotate(p.sway);
+    ctx.scale(p.breathSX, p.breathSY);
+    ctx.translate(-rig.cx, -rig.cy);
+
+    for (var i = 0; i < rig.ears.length; i++) drawEar(ctx, rig, rig.ears[i], p.ears ? p.ears[i] : 0, p);
+    ctx.drawImage(body, 0, 0);
+    if (mouthPatch && rig.mouthRect) ctx.drawImage(mouthPatch, rig.mouthRect.x0, rig.mouthRect.y0);
+    for (var e = 0; e < rig.eyes.length; e++) drawEye(ctx, rig, rig.eyes[e], p, p.blinks ? p.blinks[e] : p.blink);
+    for (var n = 0; n < rig.noses.length; n++) drawNose(ctx, rig, rig.noses[n], p);
+    ctx.restore();
+  }
+
+  // the animated mouth recess, as a carve for AlienCore.renderRegion, at openness 0..1
+  function mouthCarveAt(rig, open) {
+    var mc = rig.mouthCarve; if (!mc) return null;
+    open = clamp(open, 0, 1);
+    return { x: mc.x, y: mc.y, rx: mc.rxMax, ry: mc.rxMax * mix(0.05, 0.52, open),
+      rot: mc.rot, depth: mix(0.5, 0.1, open), floor: 0.63, dark: mix(0.55, 0.95, open) };
+  }
+
+  function drawEar(ctx, rig, ear, twitch, p) {
+    ctx.save();
+    ctx.translate(ear.px, ear.py);
+    ctx.rotate(ear.ang + twitch + Math.sin(p.bobY * 0.05 + ear.phase) * 0.02);
+    var L = ear.len, Wd = ear.wid, droop = ear.droop, sgn = ear.side; // tip floppy toward outer side
+    // flap grows UPWARD (-y); tip flops sideways by droop
+    function flap(k) {
+      var tipX = sgn * Wd * droop * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(-Wd * 0.5 * k, Wd * 0.1);
+      ctx.quadraticCurveTo(-Wd * 0.6 * k - tipX * 0.2, -L * 0.55, tipX, -L);
+      ctx.quadraticCurveTo(Wd * 0.6 * k - tipX * 0.2, -L * 0.55, Wd * 0.5 * k, Wd * 0.1);
+      ctx.quadraticCurveTo(0, Wd * 0.32, -Wd * 0.5 * k, Wd * 0.1);
+      ctx.closePath();
+    }
+    // drop shadow seating ear behind/under head
+    ctx.fillStyle = rgba(shade(rig.skinDk, 0.6), 0.9); ctx.save(); ctx.translate(0, Wd * 0.06); flap(1.05); ctx.fill(); ctx.restore();
+    // flesh with vertical light gradient, warm translucent tip
+    var g = ctx.createLinearGradient(-Wd * 0.5, 0, Wd * 0.5, -L);
+    g.addColorStop(0, rgba(shade(rig.skin, 0.8), 1));
+    g.addColorStop(0.45, rgba(rig.skin, 1));
+    g.addColorStop(1, rgba(lift(mix3(rig.skin, rig.sss, 0.45), 0.12), 1));
+    ctx.fillStyle = g; flap(1); ctx.fill();
+    // inner concha (darker, pinker), shorter
+    var tipX = sgn * Wd * droop * 0.9;
+    var ig = ctx.createLinearGradient(0, Wd * 0.1, 0, -L * 0.75);
+    ig.addColorStop(0, rgba(shade(mix3(rig.skinDk, rig.sss, 0.35), 0.9), 0.95));
+    ig.addColorStop(1, rgba(shade(rig.skinDk, 0.8), 0.15));
+    ctx.fillStyle = ig;
+    ctx.beginPath();
+    ctx.moveTo(0, Wd * 0.02);
+    ctx.quadraticCurveTo(-Wd * 0.32, -L * 0.45, tipX * 0.7, -L * (0.72 - droop * 0.15));
+    ctx.quadraticCurveTo(Wd * 0.32, -L * 0.45, 0, Wd * 0.02);
+    ctx.closePath(); ctx.fill();
+    // rim catch-light on the lit edge
+    ctx.strokeStyle = rgba(lift(rig.skin, 0.28), 0.55); ctx.lineWidth = Math.max(1, Wd * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(-rig.lx * Wd * 0.5, Wd * 0.05);
+    ctx.quadraticCurveTo(-rig.lx * Wd * 0.6, -L * 0.55, tipX - rig.lx * 2, -L * 0.95);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function mix3(a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; }
+
+  function drawEye(ctx, rig, eye, p, blink) {
+    if (blink == null) blink = p.blink;
+    var R = eye.R, rx = R, ry = R * eye.ry;
+    var ex = eye.cx, ey = eye.cy + R * 0.05;
+    ctx.save();
+    ctx.translate(ex, ey); ctx.rotate(eye.tilt);
+
+    // sunken socket shadow
+    var sg = ctx.createRadialGradient(0, ry * 0.2, ry * 0.2, 0, ry * 0.2, ry * 1.7);
+    sg.addColorStop(0, rgba(shade(rig.skinDk, 0.6), 0.45));
+    sg.addColorStop(1, rgba(shade(rig.skinDk, 0.6), 0));
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.ellipse(0, ry * 0.15, rx * 1.5, ry * 1.7, 0, 0, TAU); ctx.fill();
+
+    // eyeball
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, TAU); ctx.clip();
+    var wg = ctx.createRadialGradient(rig.lx * rx * 0.4, -ry * 0.3 + rig.ly * ry * 0.3, ry * 0.1, 0, 0, ry * 1.3);
+    wg.addColorStop(0, rgba(lift(rig.wet, 0.55), 1));
+    wg.addColorStop(0.6, rgba(rig.wet, 1));
+    wg.addColorStop(1, rgba(shade(mix3(rig.wet, rig.skin, 0.5), 0.9), 1));
+    ctx.fillStyle = wg; ctx.fillRect(-rx, -ry, rx * 2, ry * 2);
+    // faint sclera veins
+    ctx.strokeStyle = rgba([0.6, 0.25, 0.25], 0.18); ctx.lineWidth = Math.max(0.6, R * 0.012);
+    for (var v = 0; v < 3; v++) {
+      var a0 = (v / 3) * TAU + eye.phase;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a0) * rx, Math.sin(a0) * ry);
+      ctx.quadraticCurveTo(Math.cos(a0) * rx * 0.4, Math.sin(a0) * ry * 0.4, rx * 0.12, ry * 0.05); ctx.stroke();
+    }
+
+    // iris + pupil, offset by gaze (clamped inside)
+    var gx = clamp(p.gazeX, -1, 1) * rx * (1 - eye.irisR) * 0.9;
+    var gy = (clamp(p.gazeY, -1, 1) * ry * (1 - eye.irisR) * 0.8) + ry * 0.06;
+    var iR = R * eye.irisR;
+    var ig = ctx.createRadialGradient(gx, gy, iR * 0.1, gx, gy, iR);
+    ig.addColorStop(0, rgba(lift(eye.iris, 0.18), 1));
+    ig.addColorStop(0.7, rgba(eye.iris, 1));
+    ig.addColorStop(1, rgba(shade(eye.iris, 0.45), 1));    // dark limbal ring
+    ctx.fillStyle = ig; ctx.beginPath(); ctx.arc(gx, gy, iR, 0, TAU); ctx.fill();
+    // radial iris fibres
+    ctx.strokeStyle = rgba(shade(eye.iris, 0.55), 0.5); ctx.lineWidth = Math.max(0.5, R * 0.01);
+    for (var f = 0; f < 14; f++) {
+      var a = (f / 14) * TAU + eye.phase;
+      ctx.beginPath(); ctx.moveTo(gx + Math.cos(a) * iR * 0.35, gy + Math.sin(a) * iR * 0.35);
+      ctx.lineTo(gx + Math.cos(a) * iR * 0.95, gy + Math.sin(a) * iR * 0.95); ctx.stroke();
+    }
+    var pR = iR * eye.pupilR * (1 + p.sniff * 0.05);
+    ctx.fillStyle = '#0a0707'; ctx.beginPath(); ctx.arc(gx, gy, pR, 0, TAU); ctx.fill();
+    // wet catch-lights
+    ctx.fillStyle = 'rgba(255,252,247,0.95)';
+    ctx.beginPath(); ctx.arc(gx - iR * 0.32 + rig.lx * iR * 0.2, gy - iR * 0.34, R * 0.10, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,252,247,0.35)';
+    ctx.beginPath(); ctx.arc(gx + iR * 0.28, gy + iR * 0.30, R * 0.06, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    // lids (clip to a slightly larger eye region, paint skin from top/bottom)
+    var cover = clamp(eye.lidTop + p.droop + blink * (1.05 - eye.lidTop), 0, 1.06);
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(0, 0, rx * 1.08, ry * 1.12, 0, 0, TAU); ctx.clip();
+    // upper lid
+    var lidY = -ry + cover * 2 * ry;
+    var lg = ctx.createLinearGradient(0, -ry * 1.2, 0, lidY);
+    lg.addColorStop(0, rgba(rig.skin, 1)); lg.addColorStop(1, rgba(shade(rig.skin, 0.82), 1));
+    ctx.fillStyle = lg;
+    ctx.beginPath(); ctx.moveTo(-rx * 1.2, -ry * 1.3);
+    ctx.lineTo(rx * 1.2, -ry * 1.3);
+    ctx.lineTo(rx * 1.2, lidY);
+    ctx.quadraticCurveTo(0, lidY + ry * 0.18, -rx * 1.2, lidY);
+    ctx.closePath(); ctx.fill();
+    // crease shadow under upper lid
+    ctx.strokeStyle = rgba(shade(rig.skinDk, 0.8), 0.5); ctx.lineWidth = Math.max(1, R * 0.04);
+    ctx.beginPath(); ctx.moveTo(-rx * 1.1, lidY); ctx.quadraticCurveTo(0, lidY + ry * 0.16, rx * 1.1, lidY); ctx.stroke();
+    // lower lid + under-eye bag
+    var lowY = ry * (0.84 - eye.bag * 0.2);
+    var lowg = ctx.createLinearGradient(0, lowY - ry * 0.2, 0, ry * 1.3);
+    lowg.addColorStop(0, rgba(shade(rig.skin, 0.9), 1)); lowg.addColorStop(1, rgba(rig.skin, 1));
+    ctx.fillStyle = lowg;
+    ctx.beginPath(); ctx.moveTo(-rx * 1.2, ry * 1.3); ctx.lineTo(rx * 1.2, ry * 1.3);
+    ctx.lineTo(rx * 1.2, lowY); ctx.quadraticCurveTo(0, lowY + ry * 0.14, -rx * 1.2, lowY);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = rgba(shade(rig.skinDk, 0.9), 0.35); ctx.lineWidth = Math.max(0.8, R * 0.03);
+    ctx.beginPath(); ctx.moveTo(-rx, lowY + ry * 0.06); ctx.quadraticCurveTo(0, lowY + ry * 0.2, rx, lowY + ry * 0.06); ctx.stroke();
+    ctx.restore();
+
+    // lid rim line (wet lower lash line)
+    ctx.restore();
+  }
+
+  function drawNose(ctx, rig, n, p) {
+    var cx = n.cx, cy = n.cy + p.noseBob, w = n.w, h = n.h;
+    var flare = 1 + p.sniff * 0.4;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(n.rot || 0);
+    if (n.type === 'bulb') {
+      // raised fleshy bump
+      var g = ctx.createRadialGradient(-rig.lx * w * 0.4, -h * 0.4, h * 0.1, 0, 0, h * 1.5);
+      g.addColorStop(0, rgba(lift(rig.skin, 0.22), 1));
+      g.addColorStop(0.6, rgba(rig.skin, 1));
+      g.addColorStop(1, rgba(shade(rig.skinDk, 0.95), 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, w, h, 0, 0, TAU); ctx.fill();
+      // underside shadow
+      ctx.fillStyle = rgba(shade(rig.skinDk, 0.85), 0.5);
+      ctx.beginPath(); ctx.ellipse(0, h * 0.5, w * 0.9, h * 0.5, 0, 0, Math.PI); ctx.fill();
+    }
+    // nostrils
+    ctx.fillStyle = rgba(shade(rig.inner, 0.6), 0.92);
+    var nx = w * 0.42 * flare, ny = h * 0.45, nr = w * 0.26 * flare;
+    ctx.beginPath(); ctx.ellipse(-nx, ny, nr, nr * 1.3, -0.3, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(nx, ny, nr, nr * 1.3, 0.3, 0, TAU); ctx.fill();
+    // wet highlight on the tip
+    ctx.fillStyle = 'rgba(255,250,245,0.25)';
+    ctx.beginPath(); ctx.ellipse(-rig.lx * w * 0.3, -h * 0.25, w * 0.22, h * 0.16, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+
+  global.AlienRig = { build: build, pose: pose, draw: draw, drawBackground: drawBackground, drawShadow: drawShadow, mouthCarveAt: mouthCarveAt };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+(function(){
+  'use strict';
+  var canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+  var elSeed=document.getElementById('seed'), elStrange=document.getElementById('strange'),
+      elPal=document.getElementById('pal'), elAcc=document.getElementById('acc'),
+      elLat=document.getElementById('lat'), busy=document.getElementById('busy');
+
+  var WORK=820, DRAG=440, EXPORT=2000;
+  var state={ seed: randSeed(), strangeness:0.5, palette:'auto', speed:0.5 };
+  var scene=null, raf=null, animT=0, lastNow=performance.now(), running=true;
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches);
+
+  function randSeed(){ return (Math.random()*4294967296)>>>0; }
+
+  function speciesName(seed){
+    var A=['Mollis','Gravis','Tener','Pallida','Lacrima','Tumida','Vellus','Caro','Umbra','Mater','Senex','Infans','Nuda','Sopor'];
+    var B=['piccininii','vulnerata','dormiens','anhelans','plicata','sine oculis','lutea','rosea','livida','cinerea','monstruosa','filialis'];
+    var r=AlienCore.mulberry32(seed);
+    return A[(r()*A.length)|0]+' '+B[(r()*B.length)|0];
+  }
+
+  function fitDisplay(){
+    var pad=24;
+    var avail=Math.min(window.innerWidth-pad*2, window.innerHeight-180);
+    avail=Math.max(240, Math.min(avail, 900));
+    canvas.style.width=avail+'px'; canvas.style.height=avail+'px';
+  }
+
+  // bake the expensive flesh ONCE; everything after is cheap per-frame compositing
+  function buildScene(size){
+    var opt={strangeness:state.strangeness, palette:state.palette, transparent:true};
+    var res0=AlienCore.render(size,size,state.seed,opt);   // pass 1: silhouette for placement
+    var rig=AlienRig.build(res0);
+    opt.carve=rig.carves;
+    var res=AlienCore.render(size,size,state.seed,opt);    // pass 2: real carved recesses
+    var body=document.createElement('canvas'); body.width=size; body.height=size;
+    var bctx=body.getContext('2d');
+    var img=bctx.createImageData(size,size); img.data.set(res.out); bctx.putImageData(img,0,0);
+    var bg=document.createElement('canvas'); bg.width=size; bg.height=size;
+    AlienRig.drawBackground(bg.getContext('2d'), size, size);
+    if(canvas.width!==size){ canvas.width=size; canvas.height=size; }
+    scene={ body:body, bg:bg, rig:rig, size:size, noiseCache:{} };
+  }
+
+  function drawFrame(now){
+    raf=requestAnimationFrame(drawFrame);   // reschedule FIRST so a bad frame can't kill the loop
+    if(!running || !scene){ lastNow=now; return; }
+    try{
+      var dt=(now-lastNow)/1000; lastNow=now;
+      if(dt<0||dt>0.25) dt=0.016;            // guard against tab-switch gaps / first frame
+      animT += dt * state.speed;             // virtual time: speed scales rate without phase jumps
+      var p=AlienRig.pose(scene.rig, animT);
+      // re-bake the mouth recess only when its openness actually changes
+      if(scene.rig.mouthCarve && scene.rig.mouthRect){
+        var open=p.mouthOpen;
+        if(!scene.mp || Math.abs(open-scene.lastOpen)>0.012){
+          var mc=AlienRig.mouthCarveAt(scene.rig, open), r=scene.rig.mouthRect;
+          var reg=AlienCore.renderRegion(scene.size, scene.size, state.seed,
+            {strangeness:state.strangeness, palette:state.palette, transparent:true, carve:[mc], noiseCache:scene.noiseCache},
+            r.x0, r.y0, r.w, r.h);
+          if(!scene.mp) scene.mp=document.createElement('canvas');
+          scene.mp.width=reg.w; scene.mp.height=reg.h;
+          var pc=scene.mp.getContext('2d'); var pim=pc.createImageData(reg.w,reg.h);
+          pim.data.set(reg.out); pc.putImageData(pim,0,0);
+          scene.lastOpen=open;
+        }
+      }
+      ctx.clearRect(0,0,scene.size,scene.size);
+      ctx.drawImage(scene.bg,0,0);
+      AlienRig.drawShadow(ctx, scene.rig, p);
+      AlienRig.draw(ctx, scene.rig, scene.body, p, scene.mp);
+    }catch(e){ if(!drawFrame._warned){ drawFrame._warned=1; console.error('frame error',e); } }
+  }
+  function start(){ running=true; lastNow=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(drawFrame); }
+
+  function refreshLabel(){
+    elAcc.textContent='SPECIMEN №\u2009'+String(state.seed).padStart(10,'0');
+    elLat.textContent=speciesName(state.seed);
+    elSeed.value=String(state.seed);
+  }
+  function regen(size){ fitDisplay(); buildScene(size||WORK); refreshLabel(); start(); }
+
+  // a settled, open-eyed portrait pose for stills
+  function portraitPose(rig){
+    var p=AlienRig.pose(rig, 1.4);
+    p.blink=0; p.blinks=null; p.droop=Math.min(p.droop,0.16);
+    p.gazeX=-0.22; p.gazeY=0.12;
+    p.mouthOpen=Math.max(p.mouthOpen,0.45);
+    p.bobY*=0.25; p.sway*=0.4; p.jitterX=0;
+    return p;
+  }
+
+  // export at high resolution (rendered fresh, not a screenshot)
+  function download(){
+    busy.style.display='flex';
+    setTimeout(function(){
+      try{
+        var opt={strangeness:state.strangeness, palette:state.palette, transparent:true};
+        var res0=AlienCore.render(EXPORT,EXPORT,state.seed,opt);
+        var rig=AlienRig.build(res0); opt.carve=rig.carves;
+        var res=AlienCore.render(EXPORT,EXPORT,state.seed,opt);
+        var off=document.createElement('canvas'); off.width=EXPORT; off.height=EXPORT;
+        var octx=off.getContext('2d');
+        var body=document.createElement('canvas'); body.width=EXPORT; body.height=EXPORT;
+        var bctx=body.getContext('2d');
+        var img=bctx.createImageData(EXPORT,EXPORT); img.data.set(res.out); bctx.putImageData(img,0,0);
+        AlienRig.drawBackground(octx, EXPORT, EXPORT);
+        var p=portraitPose(rig);
+        var mp=null;
+        if(rig.mouthCarve && rig.mouthRect){
+          var mc=AlienRig.mouthCarveAt(rig, p.mouthOpen), r=rig.mouthRect;
+          var reg=AlienCore.renderRegion(EXPORT,EXPORT,state.seed,
+            {strangeness:state.strangeness, palette:state.palette, transparent:true, carve:[mc], noiseCache:{}}, r.x0,r.y0,r.w,r.h);
+          mp=document.createElement('canvas'); mp.width=reg.w; mp.height=reg.h;
+          var mpc=mp.getContext('2d'); var mim=mpc.createImageData(reg.w,reg.h); mim.data.set(reg.out); mpc.putImageData(mim,0,0);
+        }
+        AlienRig.drawShadow(octx, rig, p);
+        AlienRig.draw(octx, rig, body, p, mp);
+        var url=off.toDataURL('image/jpeg',0.92);
+        var a=document.createElement('a');
+        a.href=url; a.download='specimen_'+state.seed+'.jpg';
+        document.body.appendChild(a); a.click(); a.remove();
+      }catch(e){ console.error(e); }
+      busy.style.display='none';
+    },30);
+  }
+
+  // events ------------------------------------------------------------------
+  document.getElementById('gen').addEventListener('click',function(){ state.seed=randSeed(); regen(); });
+  document.getElementById('dl').addEventListener('click',download);
+
+  elSeed.addEventListener('change',function(){
+    var v=parseInt(elSeed.value.replace(/[^0-9]/g,''),10);
+    if(!isFinite(v)) v=0; state.seed=v>>>0; regen();
+  });
+  elSeed.addEventListener('keydown',function(e){ if(e.key==='Enter') elSeed.blur(); });
+
+  // tempo: speed multiplier 0.17x (sluggish) .. 1.5x (hyperactive), 0.5x at centre
+  var elSpeedX=document.getElementById('speed'), elTempo=document.getElementById('tempoLbl');
+  var TEMPO_WORDS=['Sluggish','Torpid','Languid','Ambling','Lively','Frisky','Hyperactive'];
+  function applyTempo(){
+    var v=elSpeedX?parseFloat(elSpeedX.value):0.5; if(isNaN(v)) v=0.5;
+    state.speed=0.5*Math.pow(3, 2*v-1);
+    if(elTempo) elTempo.textContent='Tempo · '+TEMPO_WORDS[Math.round(v*(TEMPO_WORDS.length-1))];
+  }
+  if(elSpeedX) elSpeedX.addEventListener('input', applyTempo);
+  applyTempo();
+
+  // strangeness: rebuild at draft res while dragging (throttled), full res on release
+  var lastDraft=0;
+  elStrange.addEventListener('input',function(){
+    state.strangeness=parseFloat(elStrange.value);
+    var now=performance.now();
+    if(now-lastDraft>70){ lastDraft=now; buildScene(DRAG); refreshLabel(); }
+  });
+  elStrange.addEventListener('change',function(){
+    state.strangeness=parseFloat(elStrange.value); regen();
+  });
+
+  elPal.addEventListener('change',function(){ state.palette=elPal.value; regen(); });
+
+  var rt;
+  window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(fitDisplay,120); });
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){ running=false; cancelAnimationFrame(raf); }
+    else start();                                  // start() re-anchors lastNow, so the gap is skipped
+  });
+
+  regen();
+})();
+</script>
+</body>
+</html>
