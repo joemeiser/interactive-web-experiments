@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>3D House — WebGL</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#0a0a0a;font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#fff}
-  #c{display:block;width:100%;height:100%}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a0a0a;font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#fff;overscroll-behavior:none}
+  #c{display:block;width:100%;height:100%;touch-action:none}
   #crosshair{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-size:22px;color:rgba(255,255,255,.7);pointer-events:none;text-shadow:0 0 3px #000}
   #prompt{position:fixed;left:50%;bottom:9%;transform:translateX(-50%);font-size:18px;letter-spacing:.5px;text-shadow:0 0 6px #000,0 1px 2px #000;pointer-events:none;opacity:.95}
   #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,12,20,.82);cursor:pointer;text-align:center;backdrop-filter:blur(2px)}
@@ -16,17 +16,103 @@
   #overlay .keys{margin-top:14px;font-size:14px;color:#9fb0c8}
   #overlay .go{margin-top:18px;font-size:15px;color:#7fd0ff}
   kbd{background:#2a3346;border:1px solid #46506a;border-radius:5px;padding:1px 7px;font-family:inherit;font-size:13px}
+
+  /* ---- touch UI (hidden until mobile session starts) ---- */
+  html,body{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #touch{ position:fixed; inset:0; display:none; pointer-events:none; z-index:5; }
+  #touch.on{ display:block; }
+  .stick{ position:absolute; bottom:max(22px,env(safe-area-inset-bottom)); width:130px; height:130px;
+    border-radius:50%; background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.22);
+    pointer-events:auto; touch-action:none; }
+  #stickMove{ left:max(22px,env(safe-area-inset-left)); }
+  #stickLook{ right:max(22px,env(safe-area-inset-right)); }
+  .nub{ position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px;
+    border-radius:50%; background:rgba(255,255,255,.30); border:1px solid rgba(255,255,255,.45);
+    box-shadow:0 1px 6px rgba(0,0,0,.4); }
+  .stick .label{ position:absolute; left:0; right:0; top:-22px; text-align:center; font-size:11px;
+    letter-spacing:.5px; color:rgba(255,255,255,.5); }
+  #btnDoor{ position:fixed; left:50%; bottom:24%; transform:translateX(-50%); pointer-events:auto; touch-action:none;
+    display:none; padding:12px 22px; border-radius:30px; font-size:15px; font-weight:600; color:#08121e;
+    background:#7fd0ff; border:none; box-shadow:0 2px 14px rgba(0,0,0,.5); z-index:6; }
+  #rotate{ position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center;
+    background:#0a0e16; text-align:center; padding:30px; font-size:17px; color:#cfd6e4; }
+  #rotate.on{ display:flex; }
+
+  /* ---- death / game over ---- */
+  #dead{ position:fixed; inset:0; background:#b00000; opacity:0; pointer-events:none; z-index:30; }
+  #gameover{ position:fixed; inset:0; z-index:31; display:none; align-items:center; justify-content:center;
+    background:rgba(35,0,0,.7); backdrop-filter:blur(3px); text-align:center; padding:20px; }
+  #gameover .card{ max-width:460px; padding:30px 34px; border:1px solid rgba(255,120,120,.35);
+    border-radius:14px; background:rgba(28,8,8,.9); box-shadow:0 0 50px rgba(140,0,0,.6); }
+  #gameover h1{ margin:0; font-size:clamp(28px,7vw,40px); color:#ff4d4d; letter-spacing:3px;
+    text-shadow:0 0 14px rgba(255,0,0,.6); }
+  #gameover .skull{ font-size:46px; margin:0 0 4px; }
+  #gameover p{ margin:12px 0 0; color:#f3cccc; font-size:15px; line-height:1.55; }
+  #gameover button{ margin-top:22px; padding:12px 28px; font:inherit; font-size:15px; font-weight:600;
+    color:#220000; background:#ff5a5a; border:none; border-radius:10px; cursor:pointer; }
+  #gameover button:active{ transform:translateY(1px); }
+  #toast{ position:fixed; left:50%; top:13%; transform:translate(-50%,-12px); z-index:25;
+    padding:12px 22px; border-radius:30px; background:rgba(20,26,38,.92); border:1px solid #ffd76a;
+    color:#ffe9a8; font-size:15px; font-weight:600; box-shadow:0 4px 22px rgba(0,0,0,.5);
+    opacity:0; pointer-events:none; transition:opacity .4s, transform .4s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  /* ---- egg discovery feedback ---- */
+  #goldflash{ position:fixed; inset:0; z-index:32; pointer-events:none; opacity:0; transition:opacity .25s;
+    background:radial-gradient(circle at 50% 45%, rgba(255,214,106,.5), rgba(255,214,106,0) 60%); }
+  #goldflash.show{ opacity:1; }
+  #award{ position:fixed; left:50%; top:38%; transform:translate(-50%,-50%) scale(.8); z-index:33;
+    display:none; text-align:center; padding:26px 38px; border-radius:18px; pointer-events:none;
+    background:linear-gradient(160deg, rgba(60,46,8,.96), rgba(34,24,4,.96));
+    border:2px solid #ffd76a; box-shadow:0 0 60px rgba(255,200,80,.55), 0 10px 40px rgba(0,0,0,.6);
+    opacity:0; transition:opacity .45s, transform .45s; }
+  #award.show{ display:block; opacity:1; transform:translate(-50%,-50%) scale(1); }
+  #award .em{ font-size:54px; line-height:1; }
+  #award .t{ font-size:24px; font-weight:700; color:#ffe9a8; letter-spacing:.5px; margin-top:8px; text-shadow:0 2px 10px rgba(0,0,0,.6); }
+  #award .s{ font-size:14px; color:#d8c79a; margin-top:6px; }
+
+  /* ---- control-scheme chooser ---- */
+  #overlay .modes{ display:flex; gap:14px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+  #overlay .mode{ display:flex; flex-direction:column; align-items:center; gap:3px; min-width:132px;
+    padding:14px 18px 12px; font:inherit; color:#dfe7f5; background:rgba(40,52,74,.6);
+    border:1.5px solid rgba(255,255,255,.18); border-radius:12px; cursor:pointer; font-size:24px; }
+  #overlay .mode span{ font-size:15px; font-weight:600; }
+  #overlay .mode small{ font-size:12px; color:#9fb0c8; font-weight:400; }
+  #overlay .mode:hover{ border-color:#7fd0ff; }
+  #overlay .mode.rec{ border-color:#7fd0ff; box-shadow:0 0 0 2px rgba(127,208,255,.28); }
+  #overlay .mode.rec::after{ content:'✓ recommended'; font-size:10px; color:#7fd0ff; letter-spacing:.5px; margin-top:2px; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="crosshair">+</div>
 <div id="prompt"></div>
+<div id="touch">
+  <div id="stickMove" class="stick"><div class="label">MOVE</div><div class="nub"></div></div>
+  <div id="stickLook" class="stick"><div class="label">LOOK</div><div class="nub"></div></div>
+</div>
+<button id="btnDoor">Open door</button>
+<div id="rotate">↻ Rotate your device to landscape for the best experience.</div>
+<div id="dead"></div>
+<div id="toast"></div>
+<div id="goldflash"></div>
+<div id="award"><div class="em">🥚</div><div class="t">You found the golden egg!</div><div class="s">A shiny secret, well explored.</div></div>
+<div id="gameover"><div class="card">
+  <div class="skull">🧟</div>
+  <h1>YOU DIED</h1>
+  <p id="goMsg"></p>
+  <button id="respawn">↺ Try again</button>
+</div></div>
 <div id="overlay"><div class="card">
   <h1>3D House</h1>
   <p>A small explorable house and garden with a day–night cycle, openable doors and a fire.</p>
   <p class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; mouse look &nbsp; <kbd>Shift</kbd> run &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>E</kbd> doors &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>Esc</kbd> release</p>
-  <p class="go">▶ Click to enter (sound on)</p>
+  <p class="keys" id="touchKeys" style="display:none">Left stick moves (push fully to run) &nbsp; right stick looks &nbsp; tap a nearby door (or the button) to open</p>
+  <p class="go">Choose your controls (sound on)</p>
+  <div class="modes">
+    <button id="modeDesktop" class="mode">🖥️<span>Desktop</span><small>keyboard &amp; mouse</small></button>
+    <button id="modeMobile" class="mode">📱<span>Mobile</span><small>touch joysticks</small></button>
+  </div>
 </div></div>
 
 <script type="importmap">
@@ -35,6 +121,14 @@
 
 <script type="module">
 import * as THREE from 'three';
+
+/* device heuristics: graphics quality auto-detects from hardware;
+   control scheme defaults to the guess but the user picks explicitly at start */
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const HAS_TOUCH = navigator.maxTouchPoints>0 || 'ontouchstart' in window;
+const AUTO_TOUCH = COARSE && HAS_TOUCH;     // best guess this is a phone/tablet
+const LOW_GPU = AUTO_TOUCH;                 // lighter rendering on touch hardware
+let IS_TOUCH = AUTO_TOUCH;                  // final control scheme (overridable on start screen)
 
 /* =========================================================== TUNABLES === */
 const DAY_NIGHT_MINUTES = 3.0;   // full day->night->day cycle length
@@ -67,8 +161,8 @@ const WOOD='wood', WALL='wall', GRASSK='grass';
 
 /* =========================================================== renderer === */
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const renderer = new THREE.WebGLRenderer({canvas, antialias:!LOW_GPU, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio, LOW_GPU?1.5:2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -255,7 +349,7 @@ hill(-32,-34,16,7); hill(58,44,18,8); hill(56,-30,13,5); hill(-28,52,15,6);
   box(0.45,5.85,0.85,6.10,my+0.14,my+0.26,TRUNK,false); box(0.45,6.20,0.85,6.45,my+0.16,my+0.30,TRUNK,false); }
 
 /* =========================================================== doors ===== */
-const doors=[];
+const doors=[], doorPanels=[];
 for(const s of DOORSPEC){
   const pivot=new THREE.Group(); pivot.position.set(s.hx,s.base,s.hz); scene.add(pivot);
   const w=s.width, th=s.th, h=s.height;
@@ -264,7 +358,8 @@ for(const s of DOORSPEC){
   else { geo=new THREE.BoxGeometry(th,h-0.06,w-0.04); cx=0; cz=w/2; }
   const panel=new THREE.Mesh(geo, matFor([0.42,0.28,0.16],1,1,1));
   panel.position.set(cx,h/2,cz); panel.castShadow=true; panel.receiveShadow=true; pivot.add(panel);
-  doors.push({spec:s,pivot,target:0,open:false});
+  const doorObj={spec:s,pivot,target:0,open:false}; panel.userData.door=doorObj;
+  doorPanels.push(panel); doors.push(doorObj);
 }
 function refreshBlockers(){ doorBlockers.length=0;
   for(const d of doors){ if(d.open) continue; const s=d.spec, y0=s.base, y1=s.base+s.height;
@@ -274,7 +369,7 @@ function nearestDoor(maxd){ let best=null,bd=maxd;
   for(const d of doors){ const s=d.spec; const cx=s.orient==='x'?s.hx+s.width/2:s.hx, cz=s.orient==='x'?s.hz:s.hz+s.width/2;
     const dist=Math.hypot(player.x-cx,player.z-cz); if(dist<bd){bd=dist;best=d;} } return best; }
 const _tip=new THREE.Vector3();
-function interact(){ const d=nearestDoor(2.8); if(!d) return;
+function toggleDoor(d){ if(!d) return;
   if(d.open){ d.open=false; d.target=0; }
   else { d.open=true; const s=d.spec;
     const cur=d.pivot.rotation.y; let best=DOOR_OPEN, bestd=-1;
@@ -284,13 +379,14 @@ function interact(){ const d=nearestDoor(2.8); if(!d) return;
     d.pivot.rotation.y=cur; d.target=best; }
   refreshBlockers();
 }
+function interact(){ toggleDoor(nearestDoor(2.8)); }
 refreshBlockers();
 
 /* =========================================================== lights ==== */
 const amb = new THREE.AmbientLight(0xffffff, AMBIENT_DAY); scene.add(amb);
 const hemi = new THREE.HemisphereLight(0x9fc0ff, 0x584434, 0.5); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2e0, SUN_INTENSITY);
-sun.castShadow=true; sun.shadow.mapSize.set(2048,2048);
+sun.castShadow=true; sun.shadow.mapSize.set(LOW_GPU?1024:2048, LOW_GPU?1024:2048);
 const sc=sun.shadow.camera; sc.left=-32; sc.right=32; sc.top=32; sc.bottom=-32; sc.near=1; sc.far=240;
 sun.shadow.bias=-0.0004; scene.add(sun); scene.add(sun.target);
 
@@ -333,6 +429,10 @@ function updateSky(dt){
 /* =========================================================== player ==== */
 const player={x:6.5,y:MID_Y,z:6.5}; let vy=0, yaw=270*Math.PI/180, pitch=0;
 const keys={};
+const joy={mx:0,my:0,lx:0,ly:0,run:false};   // analog: move x/y, look x/y (-1..1), run toggle
+const LOOK_SPEED=2.4;                          // rad/sec at full stick deflection
+let started=false;                             // mobile session flag (no pointer lock on touch)
+function isActive(){ return IS_TOUCH ? started : document.pointerLockElement===canvas; }
 addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); keys[k]=true;
   if(k===' ' && Math.abs(vy)<1e-3) vy=JUMP;
   if(k==='e') interact();
@@ -340,11 +440,27 @@ addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); keys[k]=true;
 addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
 
 const overlay=document.getElementById('overlay');
-overlay.addEventListener('click',()=>{ canvas.requestPointerLock(); startAudio(); });
-document.addEventListener('pointerlockchange',()=>{ overlay.style.display = document.pointerLockElement===canvas?'none':'flex'; });
+const touchUI=document.getElementById('touch');
+let touchReady=false;
+function startSession(){
+  startAudio();
+  if(IS_TOUCH){
+    if(!touchReady){ setupTouch(); touchReady=true; document.getElementById('touchKeys').style.display='block'; }
+    started=true; overlay.style.display='none'; touchUI.classList.add('on'); checkOrientation();
+  } else { overlay.style.display='none'; canvas.requestPointerLock(); }
+}
+function chooseMode(touch){ IS_TOUCH=touch; startSession(); }
+document.getElementById('modeDesktop').addEventListener('click',()=>chooseMode(false));
+document.getElementById('modeMobile').addEventListener('click',()=>chooseMode(true));
+document.getElementById(AUTO_TOUCH?'modeMobile':'modeDesktop').classList.add('rec');
+document.addEventListener('pointerlockchange',()=>{ if(IS_TOUCH||dead) return;
+  overlay.style.display = document.pointerLockElement===canvas?'none':'flex'; });
 document.addEventListener('mousemove',e=>{ if(document.pointerLockElement!==canvas) return;
   yaw += e.movementX*SENS; pitch -= e.movementY*SENS;
   pitch=Math.max(-1.55,Math.min(1.55,pitch)); });
+addEventListener('orientationchange',checkOrientation);
+function checkOrientation(){ if(!IS_TOUCH) return;
+  document.getElementById('rotate').classList.toggle('on', started && innerHeight>innerWidth); }
 
 function resolve(px,pz,py){ const lo=py, hi=py+1.7;
   for(let it=0;it<2;it++) for(const [x0,z0,x1,z1,cy0,cy1] of (colliders.length?colliders.concat(doorBlockers):doorBlockers)){
@@ -363,17 +479,23 @@ function support(px,pz,py){ const lim=py+STEP_UP; let best=-1e9;
 }
 function move(dt){
   const fx=Math.cos(yaw), fz=Math.sin(yaw), rx=-Math.sin(yaw), rz=Math.cos(yaw);
-  const sp=(keys['shift']?RUN:WALK)*dt; let mx=0,mz=0;
-  if(keys['w']){mx+=fx;mz+=fz;} if(keys['s']){mx-=fx;mz-=fz;}
-  if(keys['d']){mx+=rx;mz+=rz;} if(keys['a']){mx-=rx;mz-=rz;}
-  const ln=Math.hypot(mx,mz);
-  if(ln>1e-6){ mx=mx/ln*sp; mz=mz/ln*sp;
+  let f=0, r=0;                                  // forward, right (-1..1)
+  if(keys['w'])f+=1; if(keys['s'])f-=1; if(keys['d'])r+=1; if(keys['a'])r-=1;
+  f+=joy.my; r+=joy.mx;
+  const mag=Math.hypot(f,r);
+  const run=keys['shift']||joy.run;
+  const sp=(run?RUN:WALK)*dt;
+  if(mag>1e-6){ const s=Math.min(1,mag)/mag; f*=s; r*=s;   // clamp to unit, keep analog ramp
+    const mx=(fx*f+rx*r)*sp, mz=(fz*f+rz*r)*sp;
     player.x=resolve(player.x+mx,player.z,player.y)[0];
     player.z=resolve(player.x,player.z+mz,player.y)[1]; }
   const sup=support(player.x,player.z,player.y);
   if(vy<=0 && sup-0.02<=player.y && player.y<=sup+STEP_UP){ player.y=sup; vy=0; }
   else { vy-=GRAV*dt; player.y+=vy*dt; if(vy<=0&&player.y<=sup){player.y=sup;vy=0;} }
 }
+function lookTick(dt){ if(joy.lx||joy.ly){
+  yaw+=joy.lx*LOOK_SPEED*dt; pitch-=joy.ly*LOOK_SPEED*dt;
+  pitch=Math.max(-1.55,Math.min(1.55,pitch)); } }
 const _dir=new THREE.Vector3();
 function applyCamera(){ const ey=player.y+EYE;
   _dir.set(Math.cos(pitch)*Math.cos(yaw),Math.sin(pitch),Math.cos(pitch)*Math.sin(yaw));
@@ -381,7 +503,52 @@ function applyCamera(){ const ey=player.y+EYE;
   camera.lookAt(player.x+_dir.x,ey+_dir.y,player.z+_dir.z);
 }
 
-/* =========================================================== audio ===== */
+/* =========================================================== touch ===== */
+const DOOR_TAP_DIST = 3.2;                       // how close player must be to tap-open a door
+const raycaster = new THREE.Raycaster();
+function setupTouch(){
+  const bind=(id,onMove)=>{
+    const el=document.getElementById(id), nub=el.querySelector('.nub');
+    let active=null;                              // touch identifier currently driving this stick
+    const reset=()=>{ active=null; nub.style.transform='translate(-50%,-50%)'; onMove(0,0); };
+    const set=(t)=>{ const r=el.getBoundingClientRect(); const R=r.width/2-6;
+      let dx=t.clientX-(r.left+r.width/2), dy=t.clientY-(r.top+r.height/2);
+      const m=Math.hypot(dx,dy); if(m>R){ dx=dx/m*R; dy=dy/m*R; }
+      nub.style.transform=`translate(${dx-28}px,${dy-28}px)`;
+      onMove(dx/R, dy/R); };                      // normalized -1..1
+    el.addEventListener('touchstart',e=>{ e.preventDefault();
+      if(active===null){ const t=e.changedTouches[0]; active=t.identifier; set(t); } },{passive:false});
+    document.addEventListener('touchmove',e=>{ if(active===null) return;
+      for(const t of e.changedTouches) if(t.identifier===active){ e.preventDefault(); set(t); } },{passive:false});
+    const end=e=>{ if(active===null) return;
+      for(const t of e.changedTouches) if(t.identifier===active){ reset(); } };
+    document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
+  };
+  bind('stickMove',(x,y)=>{ joy.mx=x; joy.my=-y; joy.run=Math.hypot(x,y)>0.92; });   // full push = run
+  bind('stickLook',(x,y)=>{ joy.lx=x; joy.ly=y; });    // up = look up
+
+  const doorB=document.getElementById('btnDoor');
+  doorB.addEventListener('touchstart',e=>{ e.preventDefault(); interact(); },{passive:false});
+
+  /* quick tap on the empty view (not on a control) raycasts a nearby door */
+  let tStart=0, tx=0, ty=0;
+  canvas.addEventListener('touchstart',e=>{ const t=e.changedTouches[0]; tStart=performance.now(); tx=t.clientX; ty=t.clientY; },{passive:true});
+  canvas.addEventListener('touchend',e=>{ const t=e.changedTouches[0];
+    if(performance.now()-tStart>300) return;                 // too slow = not a tap
+    if(Math.hypot(t.clientX-tx,t.clientY-ty)>14) return;      // moved = drag, ignore
+    tapDoor(t.clientX,t.clientY); },{passive:true});
+}
+function tapDoor(cx,cy){
+  const ndc=new THREE.Vector2((cx/innerWidth)*2-1, -(cy/innerHeight)*2+1);
+  raycaster.setFromCamera(ndc,camera);
+  const hits=raycaster.intersectObjects(doorPanels,false);
+  if(!hits.length) return;
+  const d=hits[0].object.userData.door, s=d.spec;
+  const dxc=s.orient==='x'?s.hx+s.width/2:s.hx, dzc=s.orient==='x'?s.hz:s.hz+s.width/2;
+  if(Math.hypot(player.x-dxc,player.z-dzc)<=DOOR_TAP_DIST) toggleDoor(d);
+}
+
+
 let AUD=null, muted=false;
 const ROOT=220;                              // A3
 const m2f=s=>ROOT*Math.pow(2,s/12);
@@ -444,13 +611,394 @@ function updateAudio(){ if(!AUD) return;
 }
 function toggleMute(){ muted=!muted; if(AUD) AUD.master.gain.setTargetAtTime(muted?0.0001:0.85, AUD.ac.currentTime, 0.3); }
 
+/* =========================================================== sfx ======= */
+function sfxBark(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;
+  const o=ac.createOscillator(); o.type='square';
+  o.frequency.setValueAtTime(470,t); o.frequency.exponentialRampToValueAtTime(165,t+0.13);
+  const o2=ac.createOscillator(); o2.type='sawtooth'; o2.frequency.setValueAtTime(235,t); o2.frequency.exponentialRampToValueAtTime(95,t+0.13);
+  const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=950; f.Q.value=0.7;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+  o.connect(f); o2.connect(f); f.connect(g); g.connect(AUD.master);
+  o.start(t); o2.start(t); o.stop(t+0.22); o2.stop(t+0.22); }
+function sfxBarks(n,gap){ for(let i=0;i<n;i++) setTimeout(sfxBark, i*(gap||230)); }   // a few barks in a row
+function sfxGrowl(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;
+  const src=ac.createBufferSource(); src.buffer=AUD.nb; const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=380;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.03); g.gain.exponentialRampToValueAtTime(0.0001,t+0.32);
+  src.connect(f); f.connect(g); g.connect(AUD.master); src.start(t); src.stop(t+0.35); }
+function sfxChirp(base){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime; base=base||2500;
+  for(let i=0;i<2;i++){ const ts=t+i*0.08; const o=ac.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(base*(1+i*0.12),ts); o.frequency.exponentialRampToValueAtTime(base*1.5,ts+0.05);
+    const g=ac.createGain(); g.gain.setValueAtTime(0.0001,ts); g.gain.exponentialRampToValueAtTime(0.12,ts+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,ts+0.09);
+    o.connect(g); g.connect(AUD.master); o.start(ts); o.stop(ts+0.12); } }
+function sfxSparkle(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;
+  [0,4,7,12,16].forEach((s,i)=>{ const ts=t+i*0.07; const o=ac.createOscillator(); o.type='triangle';
+    o.frequency.value=m2f(s+24);
+    const g=ac.createGain(); g.gain.setValueAtTime(0.0001,ts); g.gain.exponentialRampToValueAtTime(0.16,ts+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,ts+0.5);
+    o.connect(g); g.connect(AUD.master); o.start(ts); o.stop(ts+0.55); }); }
+function sfxChomp(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;
+  const src=ac.createBufferSource(); src.buffer=AUD.nb; const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=650;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.55,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+  src.connect(f); f.connect(g); g.connect(AUD.master); src.start(t); src.stop(t+0.45);
+  const o=ac.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(38,t+0.3);
+  const g2=ac.createGain(); g2.gain.setValueAtTime(0.5,t); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
+  o.connect(g2); g2.connect(AUD.master); o.start(t); o.stop(t+0.4); }
+function sfxZombieCry(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;   // sad wavering whimper
+  const o=ac.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(300,t); o.frequency.linearRampToValueAtTime(220,t+0.5);
+  const vib=ac.createOscillator(); vib.type='sine'; vib.frequency.value=11; const vibG=ac.createGain(); vibG.gain.value=22; vib.connect(vibG); vibG.connect(o.frequency);
+  const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=700; f.Q.value=2;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.28,t+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t+0.55);
+  o.connect(f); f.connect(g); g.connect(AUD.master); o.start(t); vib.start(t); o.stop(t+0.6); vib.stop(t+0.6); }
+function sfxZombieScream(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;  // final shriek
+  const o=ac.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(680,t); o.frequency.exponentialRampToValueAtTime(120,t+0.9);
+  const o2=ac.createOscillator(); o2.type='square'; o2.frequency.setValueAtTime(690,t); o2.frequency.exponentialRampToValueAtTime(110,t+0.9);
+  const src=ac.createBufferSource(); src.buffer=AUD.nb; const nf=ac.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=1400; nf.Q.value=0.8;
+  const ng=ac.createGain(); ng.gain.setValueAtTime(0.25,t); ng.gain.exponentialRampToValueAtTime(0.0001,t+0.9); src.connect(nf); nf.connect(ng); ng.connect(AUD.master); src.start(t); src.stop(t+0.95);
+  const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=1100; f.Q.value=1.2;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.04); g.gain.exponentialRampToValueAtTime(0.0001,t+0.95);
+  o.connect(f); o2.connect(f); f.connect(g); g.connect(AUD.master); o.start(t); o2.start(t); o.stop(t+1.0); o2.stop(t+1.0); }
+let MOAN=null;
+function startMoan(){ if(!AUD||MOAN) return; const ac=AUD.ac;
+  const o=ac.createOscillator(); o.type='sawtooth'; o.frequency.value=82;
+  const lfo=ac.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.45;             // pitch wobble
+  const lfoG=ac.createGain(); lfoG.gain.value=16; lfo.connect(lfoG); lfoG.connect(o.frequency);
+  const lfo2=ac.createOscillator(); lfo2.type='sine'; lfo2.frequency.value=0.13;           // slow drift, incommensurate
+  const lfo2G=ac.createGain(); lfo2G.gain.value=10; lfo2.connect(lfo2G); lfo2G.connect(o.frequency);
+  const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=320;
+  const flfo=ac.createOscillator(); flfo.type='sine'; flfo.frequency.value=0.21;           // filter wobble
+  const flfoG=ac.createGain(); flfoG.gain.value=120; flfo.connect(flfoG); flfoG.connect(f.frequency);
+  const g=ac.createGain(); g.gain.value=0.0;
+  o.connect(f); f.connect(g); g.connect(AUD.master); o.start(); lfo.start(); lfo2.start(); flfo.start();
+  MOAN={g}; }
+function sfxGroan(){ if(!AUD||muted) return; const ac=AUD.ac,t=ac.currentTime;             // irregular one-shot groan swell
+  const o=ac.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(70+Math.random()*30,t); o.frequency.linearRampToValueAtTime(55+Math.random()*20,t+0.9);
+  const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=300;
+  const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.18,t+0.2); g.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+  o.connect(f); f.connect(g); g.connect(AUD.master); o.start(t); o.stop(t+1.05); }
+let PANT=null;
+function startPant(){ if(!AUD||PANT) return; const ac=AUD.ac;
+  const src=ac.createBufferSource(); src.buffer=AUD.nb; src.loop=true;
+  const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=950; bp.Q.value=0.7;
+  const breath=ac.createGain(); breath.gain.value=0.5;            // rhythmic open/close = panting
+  const lfo=ac.createOscillator(); lfo.type='sine'; lfo.frequency.value=2.7;
+  const lfoG=ac.createGain(); lfoG.gain.value=0.5; lfo.connect(lfoG); lfoG.connect(breath.gain);
+  const g=ac.createGain(); g.gain.value=0.0;
+  src.connect(bp); bp.connect(breath); breath.connect(g); g.connect(AUD.master); src.start(); lfo.start();
+  PANT={g}; }
+
+/* =========================================================== critters == */
+const TAU=Math.PI*2;
+function cmat(hex,o={}){ return new THREE.MeshStandardMaterial({color:hex,roughness:o.r??0.85,metalness:o.m??0,emissive:o.e??0x000000,emissiveIntensity:o.ei??1}); }
+function part(par,w,h,d,x,y,z,mat){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; par.add(m); return m; }
+
+let dead=false, deathT=0, shake=0;
+
+/* ---- dog: sleeps on the bed, then becomes a follower companion ---- */
+const dog=new THREE.Group(); scene.add(dog);
+{ const fur=cmat(0x8a5a32), fur2=cmat(0x6f4423), dk=cmat(0x241910);
+  part(dog,0.66,0.32,0.34,0,0.40,0,fur);                 // body
+  const head=part(dog,0.30,0.30,0.30,0.42,0.50,0,fur);   // head
+  part(dog,0.16,0.12,0.16,0.60,0.42,0,fur2);             // snout
+  part(dog,0.05,0.04,0.06,0.69,0.40,0,dk);               // nose
+  const ears=[ part(dog,0.08,0.16,0.04,0.40,0.66,0.12,fur2), part(dog,0.08,0.16,0.04,0.40,0.66,-0.12,fur2) ];
+  ears.forEach(e=>{ e.geometry.translate(0,0.08,0); e.position.y=0.66; });   // pivot at top so they flop
+  const tail=part(dog,0.22,0.07,0.07,0,0.46,0,fur2); tail.geometry.translate(-0.11,0,0); tail.position.set(-0.30,0.46,0);
+  const legs=[]; for(const [lx,lz] of [[0.22,0.12],[0.22,-0.12],[-0.22,0.12],[-0.22,-0.12]]){
+    const L=part(dog,0.10,0.30,0.10,lx,0.15,lz,fur2); L.geometry.translate(0,-0.15,0); L.position.y=0.30; legs.push(L); }
+  dog.userData={head,tail,ears,legs,state:'sleep',wake:0,barkT:0,timer:0,barks:0,walk:0,companion:false};
+  dog.rotation.y=Math.PI/2; }   // face the doorway while on the bed
+const DOG_BASE=MID_Y+0.52, DOG_POS={x:14.7,z:11.8};
+const inBedroom=()=> player.y>-1.0 && player.x>11.3 && player.x<21.8 && player.z>8.3 && player.z<15.8;
+const dogGround=()=> support(dog.position.x,dog.position.z,dog.position.y);
+
+function updateDog(dt,t){ const u=dog.userData;
+
+  // ----- on the bed: sleeping / excited -----
+  if(u.state==='sleep' || u.state==='excited'){
+    const inRoom=inBedroom();
+    if(u.state==='sleep' && inRoom) u.state='excited';
+    if(u.state==='excited' && !inRoom){ u.state='leaving'; u.timer=0; u.barks=0; }
+    u.wake += (((u.state==='excited')?1:0)-u.wake)*Math.min(1,dt*6); const w=u.wake;
+    const hop = w>0.5 ? Math.abs(Math.sin(t*7))*0.22*w : 0;
+    dog.position.set(DOG_POS.x, DOG_BASE+hop, DOG_POS.z); dog.rotation.set(0,Math.PI/2,0);
+    dog.scale.y=0.5+0.5*w;
+    u.tail.rotation.y=Math.sin(t*16)*0.6*w; u.head.rotation.z=Math.sin(t*7)*0.12*w;
+    if(w>0.6){ u.barkT-=dt; if(u.barkT<=0){ u.barkT=0.45+Math.random()*0.3; sfxBark(); } }
+    return;
+  }
+
+  // ----- leaving the bed: bark a few clear times, then commit to following -----
+  if(u.state==='leaving'){
+    u.timer+=dt; dog.scale.y=1;
+    if(u.timer>0.10 && u.barks<1){ u.barks=1; sfxBark(); }
+    if(u.timer>0.60 && u.barks<2){ u.barks=2; sfxBark(); }
+    if(u.timer>1.10 && u.barks<3){ u.barks=3; sfxBark(); }
+    if(u.timer>1.7){ u.state='follow'; u.companion=true; startPant();
+      dog.position.set(15.0,MID_Y,9.2); u.barkT=2.0; }
+    return;
+  }
+
+  // ----- mauling the zombie: bite it repeatedly until it dies -----
+  if(u.state==='maul'){
+    const zx=zomb.position.x, zz=zomb.position.z, ang=zomb.rotation.y;
+    const tx=zx+Math.sin(ang)*0.7, tz=zz+Math.cos(ang)*0.7;      // lunge in from the front of the zombie
+    dog.position.x += (tx-dog.position.x)*Math.min(1,dt*10);
+    dog.position.z += (tz-dog.position.z)*Math.min(1,dt*10);
+    const g=dogGround(); dog.position.y += (g-dog.position.y)*Math.min(1,dt*9);
+    dog.rotation.set(0, Math.atan2(-(zz-dog.position.z),(zx-dog.position.x)), 0);
+    dog.scale.y=1;
+    u.walk += dt*16; const jab=Math.max(0,Math.sin(u.walk));
+    u.head.rotation.z=-jab*0.5; dog.position.y += jab*0.10;        // snapping bite + little lunge
+    u.tail.rotation.y=Math.sin(t*20)*0.6;
+    u.barkT-=dt; if(u.barkT<=0){ u.barkT=0.5+Math.random()*0.4; sfxGrowl(); }
+    if(PANT) PANT.g.gain.setTargetAtTime(0, AUD.ac.currentTime, 0.2);
+    if(zomb.userData.state==='dead'){ u.state='follow'; u.head.rotation.z=0; u.barkT=0.6; sfxBarks(3,210); }
+    return;
+  }
+
+  // ----- follow / attack: free-roaming companion -----
+  // decide whether to lunge at the zombie
+  if(u.state==='follow' && u.companion && zomb.userData.state==='chase' && player.y<-1.5){
+    const zd=Math.hypot(player.x-zomb.position.x, player.z-zomb.position.z);
+    if(zd<3.8){ u.state='attack';
+      if(dog.position.y>-1.5) dog.position.set(player.x-Math.cos(yaw)*1.6, BOT_Y, player.z-Math.sin(yaw)*1.6);
+    }
+  }
+
+  const chasingZombie = (u.state==='attack');
+  const tgtX = chasingZombie ? zomb.position.x : player.x;
+  const tgtZ = chasingZombie ? zomb.position.z : player.z;
+  let dx=tgtX-dog.position.x, dz=tgtZ-dog.position.z, d=Math.hypot(dx,dz);
+
+  // safety: never let the companion get permanently lost
+  if(!chasingZombie && d>22){ dog.position.set(player.x-Math.cos(yaw)*1.6, dog.position.y, player.z-Math.sin(yaw)*1.6);
+    dx=player.x-dog.position.x; dz=player.z-dog.position.z; d=Math.hypot(dx,dz); }
+
+  const stop = chasingZombie ? 0.8 : 1.7;
+  let moving=false;
+  if(d>stop){
+    let sp = chasingZombie ? 8.5 : (d>4 ? Math.min(7, 3.4+(d-4)*1.2) : 3.4);
+    const step=sp*dt, mdx=dx/d, mdz=dz/d;
+    let nx=dog.position.x+mdx*step, nz=dog.position.z+mdz*step;
+    [nx,nz]=resolve(nx,nz,dog.position.y); dog.position.x=nx; dog.position.z=nz;
+    dog.rotation.y=Math.atan2(-mdz,mdx); u.walk+=dt*sp*2.4; moving=true;
+  }
+  // ground / stairs follow
+  const g=dogGround(); dog.position.y += (g-dog.position.y)*Math.min(1,dt*9);
+
+  // reached the zombie -> begin the maul
+  if(chasingZombie && d<=stop){ startMaul(); u.state='maul'; u.walk=0; u.barkT=0; sfxBark(); return; }
+
+  // bouncy funny gait
+  const bounce = moving ? Math.abs(Math.sin(u.walk))*0.16 : Math.max(0,0.02+0.02*Math.sin(t*4));
+  dog.position.y += bounce;
+  dog.rotation.z = moving ? Math.sin(u.walk)*0.10 : 0;
+  dog.rotation.x = 0; dog.scale.y=1;
+  u.legs.forEach((L,i)=> L.rotation.z = moving ? Math.sin(u.walk + (i%2)*Math.PI)*0.5 : 0);
+  u.ears.forEach((e,i)=> e.rotation.x = moving ? Math.sin(u.walk*1.0)*0.4 : 0.0);
+  u.tail.rotation.y = Math.sin(t*14)*0.5;
+  if(!chasingZombie && !moving) dog.rotation.y = Math.atan2(-(player.z-dog.position.z),(player.x-dog.position.x));
+
+  // occasional bark + quiet panting while following
+  u.barkT-=dt; if(u.barkT<=0){ u.barkT=3+Math.random()*3; sfxBark(); }
+  if(PANT){ const near=Math.hypot(player.x-dog.position.x, player.z-dog.position.z);
+    PANT.g.gain.setTargetAtTime(muted?0:Math.max(0,0.0425-near*0.005), AUD.ac.currentTime, 0.25); }
+}
+
+/* ---- zombie in the basement back room ---- */
+const zomb=new THREE.Group(); scene.add(zomb);
+{ const skin=cmat(0x6f8f5a,{r:0.95}), cloth=cmat(0x39414b,{r:1}), dkcloth=cmat(0x272d35), eye=cmat(0x0a0a0a);
+  part(zomb,0.24,0.8,0.28,-0.17,0.40,0,dkcloth); part(zomb,0.24,0.8,0.28,0.17,0.40,0,dkcloth);   // legs
+  part(zomb,0.60,0.72,0.34,0,1.16,0,cloth);                                                       // torso
+  const head=part(zomb,0.34,0.36,0.32,0,1.70,0,skin);
+  part(zomb,0.07,0.07,0.03,0.08,1.74,0.17,eye); part(zomb,0.07,0.07,0.03,-0.08,1.74,0.17,eye);
+  const armL=part(zomb,0.18,0.18,0.66,-0.34,1.36,0.30,skin);                                      // arms out front
+  const armR=part(zomb,0.18,0.18,0.66, 0.34,1.36,0.30,skin);
+  zomb.userData={head,armL,armR,state:'idle',phase:0,fall:0}; zomb.position.set(18.5,BOT_Y,12.8); zomb.rotation.y=Math.PI; }
+const ZSPEED=1.5;
+
+/* green blood splatter pool */
+const BLOOD=[]; { const bm=new THREE.MeshStandardMaterial({color:0x3ad84a, emissive:0x0e4016, emissiveIntensity:0.7, roughness:0.4});
+  for(let i=0;i<70;i++){ const m=new THREE.Mesh(new THREE.SphereGeometry(0.05,6,5), bm); m.visible=false; scene.add(m);
+    BLOOD.push({m,vx:0,vy:0,vz:0,life:0,max:1,s0:1}); } }
+let bloodIx=0;
+function spawnBlood(x,y,z,n,power){ for(let i=0;i<n;i++){ const p=BLOOD[bloodIx=(bloodIx+1)%BLOOD.length];
+  p.m.visible=true; p.m.position.set(x,y,z); p.s0=0.5+Math.random()*1.0; p.m.scale.setScalar(p.s0);
+  const ang=Math.random()*TAU, sp=(0.7+Math.random()*1.8)*power;
+  p.vx=Math.cos(ang)*sp; p.vz=Math.sin(ang)*sp; p.vy=(1.6+Math.random()*2.8)*power;
+  p.life=0; p.max=0.8+Math.random()*0.7; } }
+function updateBlood(dt){ for(const p of BLOOD){ if(!p.m.visible) continue; p.life+=dt;
+  p.vy-=9*dt; p.m.position.x+=p.vx*dt; p.m.position.y+=p.vy*dt; p.m.position.z+=p.vz*dt;
+  if(p.m.position.y<BOT_Y+0.03){ p.m.position.y=BOT_Y+0.03; p.vy*=-0.3; p.vx*=0.55; p.vz*=0.55; }
+  const k=p.life/p.max; p.m.scale.setScalar(p.s0*(k>0.7?Math.max(0.02,(1-k)/0.3):1));
+  if(p.life>=p.max) p.m.visible=false; } }
+
+function startMaul(){ const u=zomb.userData; if(u.state!=='chase') return;
+  u.state='maul'; u.maulT=0; u.bites=0; u.nextBite=0.45; u.cryT=0;
+  if(MOAN) MOAN.g.gain.setTargetAtTime(0, AUD.ac.currentTime, 0.25); sfxZombieCry(); }
+function killZombie(){ startMaul(); }   // kept for compatibility
+function updateZombie(dt,t){ const u=zomb.userData;
+
+  if(u.state==='dead'){ u.fall=Math.min(1,u.fall+dt*2.5);
+    zomb.rotation.x=-Math.PI/2*u.fall; zomb.position.y=BOT_Y+0.18*u.fall; return; }
+
+  if(u.state==='maul'){
+    u.maulT+=dt;
+    // cower: arms up over the face, lean back, tremble
+    const tr=(Math.random()*2-1)*0.05;
+    u.armL.rotation.x=-2.2+tr; u.armR.rotation.x=-2.2-tr;
+    u.head.rotation.z=Math.sin(t*30)*0.25; zomb.rotation.z=-0.18+tr;
+    zomb.position.y=BOT_Y+0.02+Math.abs(Math.sin(t*22))*0.03;
+    // wavering whimper between bites
+    u.cryT-=dt; if(u.cryT<=0 && u.bites<3){ u.cryT=0.6+Math.random()*0.3; sfxZombieCry(); }
+    // the bites
+    if(u.bites<3 && u.maulT>=u.nextBite){ u.bites++; u.nextBite=u.maulT+0.6;
+      spawnBlood(zomb.position.x, BOT_Y+1.2, zomb.position.z, 14, 1.0); sfxChomp(); sfxGrowl();
+      zomb.position.x += (Math.random()*2-1)*0.06; }   // knockback jolt
+    // final bite -> scream + big splatter -> death
+    if(u.bites>=3 && u.maulT>u.nextBite-0.15){
+      sfxZombieScream(); spawnBlood(zomb.position.x, BOT_Y+1.0, zomb.position.z, 34, 1.6);
+      u.state='dead'; u.fall=0; zomb.rotation.z=0; }
+    return;
+  }
+
+  if(dead) return;
+  if(u.state==='idle'){ if(player.y<-1.5 && player.x>11.2){ u.state='chase'; u.groanT=1+Math.random()*2; startMoan(); } else return; }
+
+  const dx=player.x-zomb.position.x, dz=player.z-zomb.position.z, d=Math.hypot(dx,dz);
+  zomb.rotation.y = Math.atan2(dx,dz);
+  if(d>0.4){ const s=ZSPEED*dt; let nx=zomb.position.x+dx/d*s, nz=zomb.position.z+dz/d*s;
+    [nx,nz]=resolve(nx,nz,BOT_Y); zomb.position.x=nx; zomb.position.z=nz; }
+  u.phase+=dt*6; const sw=Math.sin(u.phase);
+  u.armL.rotation.x=0.2*sw; u.armR.rotation.x=-0.2*sw; u.head.rotation.z=0.08*Math.sin(u.phase*0.5);
+  zomb.position.y = BOT_Y + Math.abs(sw)*0.04;
+  // irregular moan: jittered base level + occasional one-shot groans
+  if(MOAN){ const base = player.y<-1.5 ? Math.max(0.12,0.5-d*0.03) : 0.05;
+    const jitter = base*(0.6+0.7*Math.abs(Math.sin(t*0.7)+0.5*Math.sin(t*1.9+1)));
+    MOAN.g.gain.setTargetAtTime(muted?0:Math.min(0.6,jitter), AUD.ac.currentTime, 0.25); }
+  u.groanT-=dt; if(u.groanT<=0){ u.groanT=1.6+Math.random()*3.2; if(player.y<-1.5) sfxGroan(); }
+  // the dog protects you — you only die if it never became your companion
+  if(d<0.85 && player.y<-1.5 && !dog.userData.companion) die(); }
+
+const QUIPS=[
+  "The zombie left you a five-star review… as a snack.",
+  "You have been gently recycled into the local ecosystem.",
+  "Bold of you to explore the basement. We admired that. Briefly.",
+  "Your braaains have officially left the building.",
+  "Achievement unlocked: Light Lunch.",
+  "He wasn't going in for a hug. We're so sorry." ];
+function die(){ if(dead) return; dead=true; deathT=0; shake=0.9; sfxChomp();
+  document.getElementById('goMsg').textContent = QUIPS[Math.floor(Math.random()*QUIPS.length)];
+  if(IS_TOUCH){ touchUI.classList.remove('on'); document.getElementById('btnDoor').style.display='none'; }
+  else if(document.pointerLockElement===canvas) document.exitPointerLock(); }
+
+/* ---- bird outside: swoops across the player's view 3x, then perches on the roof ---- */
+const bird=new THREE.Group(); scene.add(bird); bird.visible=false;
+{ const by=cmat(0xf2c14e), wg=cmat(0xd89b2e), bk=cmat(0xe8762b), ey=cmat(0x0a0a0a);
+  part(bird,0.20,0.16,0.26,0,0,0,by); const head=part(bird,0.14,0.14,0.14,0,0.08,0.14,by);
+  part(bird,0.06,0.05,0.08,0,0.07,0.24,bk);
+  part(bird,0.04,0.04,0.03,0.05,0.10,0.20,ey); part(bird,0.04,0.04,0.03,-0.05,0.10,0.20,ey);
+  const wingL=part(bird,0.04,0.04,0.20,-0.12,0.02,0,wg), wingR=part(bird,0.04,0.04,0.20,0.12,0.02,0,wg);
+  part(bird,0.04,0.08,0.16,0,0.02,-0.16,wg);
+  bird.userData={head,wingL,wingR,state:'idle',u:0,chirpT:0,visited:false,swoopsLeft:0,passIx:0,
+    from:new THREE.Vector3(),mid:new THREE.Vector3(),to:new THREE.Vector3(),
+    roofFrom:new THREE.Vector3(),roof:new THREE.Vector3(9.9,TOP_Y+0.18,0.55)}; }
+const _bp=new THREE.Vector3(), _bprev=new THREE.Vector3();
+function birdStartPass(u){
+  // build a pass that flies in from one side, dips in front of the player's gaze, exits the other side
+  const fxh=Math.cos(yaw), fzh=Math.sin(yaw), rxh=-Math.sin(yaw), rzh=Math.cos(yaw);
+  const eye=player.y+EYE, sgn=(u.passIx%2===0)?1:-1;
+  u.from.set(player.x+fxh*1.2+rxh*3.6*sgn, eye+2.0, player.z+fzh*1.2+rzh*3.6*sgn);
+  u.mid .set(player.x+fxh*3.8,             eye-0.3, player.z+fzh*3.8);          // right in front, dipping low
+  u.to  .set(player.x+fxh*1.2-rxh*3.6*sgn, eye+2.0, player.z+fzh*1.2-rzh*3.6*sgn);
+  u.u=0; u.passIx++;
+}
+function updateBird(dt,t){ const u=bird.userData;
+  const outside = player.y>-1.0 && (player.x<0||player.x>WX||player.z<0||player.z>DZ);
+  if(u.state==='idle'){
+    if(outside && !u.visited){ u.visited=true; bird.visible=true; u.state='swoop'; u.passIx=0; u.swoopsLeft=3;
+      birdStartPass(u); sfxChirp(2600); }
+    if(!outside) u.visited=false; return;
+  }
+  const flap=Math.sin(t*26)*0.8; u.wingL.rotation.z=flap; u.wingR.rotation.z=-flap;
+  if(u.state==='swoop'){
+    u.u += dt/1.5;                                   // ~1.5s per pass
+    if(u.u>=1){ u.swoopsLeft--;
+      if(u.swoopsLeft>0){ birdStartPass(u); sfxChirp(2500+Math.random()*400); }
+      else { u.state='toRoof'; u.u=0; u.roofFrom.copy(bird.position); } }
+    else { _bprev.copy(bird.position); const k=u.u, ik=1-k;          // quadratic bezier through from->mid->to
+      _bp.set(ik*ik*u.from.x+2*ik*k*u.mid.x+k*k*u.to.x,
+              ik*ik*u.from.y+2*ik*k*u.mid.y+k*k*u.to.y,
+              ik*ik*u.from.z+2*ik*k*u.mid.z+k*k*u.to.z);
+      bird.position.copy(_bp); const dir=_bp.clone().sub(_bprev);
+      if(dir.lengthSq()>1e-6) bird.rotation.y=Math.atan2(dir.x,dir.z);
+      u.chirpT-=dt; if(u.chirpT<=0){ u.chirpT=0.45; sfxChirp(2500+Math.random()*500); } }
+  }
+  else if(u.state==='toRoof'){
+    u.u += dt/1.6;
+    if(u.u>=1){ u.state='perch'; bird.position.copy(u.roof); u.chirpT=0; }
+    else { _bprev.copy(bird.position); const k=u.u;
+      _bp.lerpVectors(u.roofFrom,u.roof,k); _bp.y += Math.sin(k*Math.PI)*1.0;
+      bird.position.copy(_bp); const dir=_bp.clone().sub(_bprev);
+      if(dir.lengthSq()>1e-6) bird.rotation.y=Math.atan2(dir.x,dir.z); }
+  }
+  else if(u.state==='perch'){ bird.position.y=u.roof.y+Math.sin(t*3)*0.03; bird.rotation.y=Math.PI; u.head.rotation.x=Math.sin(t*2.2)*0.2;
+    u.chirpT-=dt; if(u.chirpT<=0){ u.chirpT=1.8+Math.random()*1.2; sfxChirp(2700); setTimeout(()=>sfxChirp(3050),140); }
+    if(!outside){ u.state='idle'; bird.visible=false; } }
+}
+
+/* ---- golden egg, sitting on the floor in a back corner of the basement ---- */
+const egg=new THREE.Group(); scene.add(egg);
+const EGG_BASE=BOT_Y+0.22;
+{ const gold=cmat(0xffcf3a,{m:0.6,r:0.22,e:0x7a5800,ei:1.0});
+  const s=new THREE.Mesh(new THREE.SphereGeometry(0.17,20,16),gold); s.scale.y=1.35; s.castShadow=true; egg.add(s);
+  const gl=new THREE.PointLight(0xffd25a,3.0,5.0,2); gl.position.set(0,0.12,0); egg.add(gl);
+  egg.position.set(20.3,EGG_BASE,13.6); egg.userData={found:false}; }
+let toastT=null;
+function showToast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),3200); }
+let awardT=null;
+function showAward(){ const a=document.getElementById('award'), gf=document.getElementById('goldflash');
+  a.classList.add('show'); gf.classList.add('show');
+  setTimeout(()=>gf.classList.remove('show'),260);
+  clearTimeout(awardT); awardT=setTimeout(()=>a.classList.remove('show'),4500); }
+function updateEgg(dt,t){ if(egg.userData.found) return;
+  egg.rotation.y+=dt*1.5; egg.position.y=EGG_BASE+Math.sin(t*2)*0.05;
+  const d=Math.hypot(player.x-egg.position.x,player.z-egg.position.z)+Math.abs(player.y-BOT_Y);
+  if(d<1.4){ egg.userData.found=true; egg.visible=false; sfxSparkle(); showAward(); } }
+
+/* ---- night bats + fireflies ---- */
+const bats=[]; { const bm=cmat(0x2c2733,{r:1,e:0x14121a,ei:1});
+  for(let i=0;i<4;i++){ const g=new THREE.Group();
+    part(g,0.26,0.03,0.12,-0.15,0,0,bm); part(g,0.26,0.03,0.12,0.15,0,0,bm); part(g,0.06,0.07,0.10,0,0,0,bm);
+    g.visible=false; scene.add(g); bats.push({g,cx:-6+i*9,cz:-8-i*3,r:5+i*2,sp:0.5+i*0.15,ph:i*1.7,h:7+i}); } }
+const flies=[]; { const fm=new THREE.MeshBasicMaterial({color:0xcdff6a});
+  for(let i=0;i<14;i++){ const m=new THREE.Mesh(new THREE.SphereGeometry(0.035,6,5),fm); m.visible=false; scene.add(m);
+    flies.push({m,bx:-8+Math.random()*16,bz:-12-Math.random()*8,ph:Math.random()*TAU,sp:0.4+Math.random()*0.6,r:0.6+Math.random()*1.2,h:0.4+Math.random()*1.2}); } }
+function updateAmbient(t,night){
+  for(const b of bats){ b.g.visible=night; if(!night) continue; const a=t*b.sp+b.ph;
+    b.g.position.set(b.cx+Math.cos(a)*b.r, b.h+Math.sin(a*1.7)*0.8, b.cz+Math.sin(a)*b.r); b.g.rotation.y=-a;
+    const fl=Math.sin(t*22+b.ph)*0.9; b.g.children[0].rotation.z=fl; b.g.children[1].rotation.z=-fl; }
+  for(const f of flies){ f.m.visible=night; if(!night) continue; const a=t*f.sp+f.ph;
+    f.m.position.set(f.bx+Math.cos(a)*f.r, f.h+Math.sin(a*1.3)*0.3, f.bz+Math.sin(a*0.7)*f.r);
+    f.m.scale.setScalar(0.6+0.6*Math.abs(Math.sin(t*3+f.ph))); } }
+
+function updateCritters(dt,t){ const night=Math.sin(tod*TAU)<-0.02;
+  updateDog(dt,t); updateZombie(dt,t); updateBird(dt,t); updateEgg(dt,t); updateBlood(dt); updateAmbient(t,night); }
+
 /* =========================================================== loop ====== */
 const promptEl=document.getElementById('prompt');
+const deadEl=document.getElementById('dead'), go=document.getElementById('gameover');
+const respawn=()=>location.reload();
+document.getElementById('respawn').addEventListener('click',respawn);
+document.getElementById('respawn').addEventListener('touchend',e=>{e.preventDefault();respawn();},{passive:false});
 const clock=new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05);
-  if(document.pointerLockElement===canvas) move(dt);
+  if(isActive() && !dead){ move(dt); lookTick(dt); }
   updateSky(dt);
   updateAudio();
   for(const d of doors){ if(Math.abs(d.pivot.rotation.y-d.target)>0.002) d.pivot.rotation.y += (d.target-d.pivot.rotation.y)*Math.min(1,dt*7); }
@@ -460,12 +1008,20 @@ function animate(){
     const b=0.85+0.15*Math.sin(ph*1.7);
     f.m.material.color.setRGB(1.0*b,(0.45+0.12*Math.sin(ph))*b,0.12*b); });
   fireLight.intensity=FIRE_INTENSITY*(0.8+0.25*Math.sin(t*11)+0.1*Math.sin(t*17));
+  updateCritters(dt,t);
+  if(dead){ deathT+=dt; deadEl.style.opacity=String(Math.min(0.82,deathT*1.6));
+    shake=Math.max(0,0.9-deathT*0.7); if(deathT>1.3) go.style.display='flex'; }
   const nd=nearestDoor(2.8);
-  promptEl.textContent = nd ? ('Press  E  to '+(nd.open?'close':'open')+' the door') : '';
+  if(IS_TOUCH){ promptEl.textContent = nd ? ('Tap the door to '+(nd.open?'close':'open')) : '';
+    const db=document.getElementById('btnDoor'); db.style.display = (started&&nd)?'block':'none';
+    if(nd) db.textContent=(nd.open?'Close door':'Open door'); }
+  else promptEl.textContent = nd ? ('Press  E  to '+(nd.open?'close':'open')+' the door') : '';
   applyCamera();
+  if(shake>0.001){ camera.position.x+=(Math.random()*2-1)*shake;
+    camera.position.y+=(Math.random()*2-1)*shake; camera.position.z+=(Math.random()*2-1)*shake; }
   renderer.render(scene,camera);
 }
-addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); if(IS_TOUCH) checkOrientation(); });
 animate();
 </script>
 </body>
