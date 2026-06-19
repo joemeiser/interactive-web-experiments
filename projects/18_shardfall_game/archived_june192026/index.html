@@ -2,105 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>SHARDFALL — Vector Defense Grid</title>
 <style>
   html,body{margin:0;height:100%;background:#05060a;overflow:hidden;
-    font-family:"Trebuchet MS",Verdana,system-ui,sans-serif;
-    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
-    -webkit-touch-callout:none;}
-  /* dynamic viewport: svh is the *stable* small viewport (won't reflow as
-     mobile browser chrome slides in/out), with vh as a legacy fallback */
-  #wrap{position:fixed;inset:0;height:100vh;height:100svh;
-    box-sizing:border-box;display:flex;align-items:center;justify-content:center;
-    padding:env(safe-area-inset-top) env(safe-area-inset-right)
-            env(safe-area-inset-bottom) env(safe-area-inset-left);
-    touch-action:none;}
-  #stage{position:relative;width:100%;height:100%;
-    display:flex;align-items:center;justify-content:center;touch-action:none;}
-  #game{display:block;image-rendering:auto;touch-action:none;
+    font-family:"Trebuchet MS",Verdana,system-ui,sans-serif;}
+  body{display:flex;align-items:center;justify-content:center;}
+  #game{display:block;image-rendering:auto;
     box-shadow:0 0 60px rgba(0,200,255,.12), inset 0 0 0 1px rgba(0,200,255,.06);
     background:#05060a;}
-  #note{position:fixed;left:0;right:0;
-    bottom:calc(8px + env(safe-area-inset-bottom));text-align:center;
+  #note{position:fixed;left:0;right:0;bottom:8px;text-align:center;
     color:#3a6a7a;font-size:11px;letter-spacing:.16em;pointer-events:none;
-    text-transform:uppercase;opacity:.7;transition:opacity .3s;z-index:3;}
-
-  /* ===== touch control overlay (hidden entirely on desktop) ===== */
-  #touch{position:fixed;inset:0;z-index:4;pointer-events:none;display:none;}
-  #touch.on{display:block;}
-  #dragSurface{position:absolute;inset:0;pointer-events:auto;touch-action:none;}
-  .tbtn{position:absolute;pointer-events:auto;touch-action:none;
-    display:flex;align-items:center;justify-content:center;
-    color:rgba(120,220,240,.9);font-weight:700;
-    background:rgba(10,24,32,.32);border:1.5px solid rgba(0,200,255,.35);
-    border-radius:16px;backdrop-filter:blur(2px);
-    box-shadow:0 0 18px rgba(0,200,255,.10);transition:background .08s,transform .08s;}
-  .tbtn:active,.tbtn.held{background:rgba(0,200,255,.30);transform:scale(.95);
-    border-color:rgba(0,255,255,.8);}
-  /* movement + fire buttons (BUTTONS scheme) */
-  #btnLeft,#btnRight{width:84px;height:84px;font-size:34px;
-    bottom:calc(20px + env(safe-area-inset-bottom));}
-  #btnLeft{left:calc(16px + env(safe-area-inset-left));}
-  #btnRight{left:calc(116px + env(safe-area-inset-left));}
-  #btnFire{width:96px;height:96px;font-size:18px;letter-spacing:.08em;
-    right:calc(20px + env(safe-area-inset-right));
-    bottom:calc(18px + env(safe-area-inset-bottom));
-    border-color:rgba(255,140,0,.5);color:rgba(255,180,90,.95);}
-  #btnFire:active,#btnFire.held{background:rgba(255,140,0,.28);border-color:rgba(255,180,0,.9);}
-  /* small utility buttons (always available while touch is on) */
-  .util{width:46px;height:46px;font-size:20px;top:calc(12px + env(safe-area-inset-top));}
-  #btnPause{right:calc(16px + env(safe-area-inset-right));}
-  #btnMute{right:calc(70px + env(safe-area-inset-right));}
-  #btnGear{left:calc(16px + env(safe-area-inset-left));}
-
-  /* ===== control-scheme chooser ===== */
-  #menu{position:fixed;inset:0;z-index:6;display:none;
-    align-items:center;justify-content:center;padding:24px;box-sizing:border-box;
-    background:rgba(5,6,10,.82);backdrop-filter:blur(3px);}
-  #menu.on{display:flex;}
-  #menuCard{width:min(420px,92vw);background:rgba(8,16,22,.9);
-    border:1.5px solid rgba(0,200,255,.4);border-radius:20px;
-    padding:24px 22px;box-shadow:0 0 50px rgba(0,200,255,.18);text-align:center;}
-  #menuCard h2{margin:0 0 4px;color:#80dcf0;letter-spacing:.14em;font-size:20px;}
-  #menuCard p{margin:0 0 18px;color:#5a8a9a;font-size:13px;letter-spacing:.04em;}
-  .opt{display:block;width:100%;box-sizing:border-box;margin:10px 0;padding:16px;
-    background:rgba(10,24,32,.5);border:1.5px solid rgba(0,200,255,.3);
-    border-radius:14px;color:#cfe;font-size:16px;font-weight:700;cursor:pointer;
-    text-align:left;transition:background .08s,border-color .08s;}
-  .opt:active{background:rgba(0,200,255,.22);}
-  .opt .sub{display:block;margin-top:4px;font-weight:400;font-size:12px;color:#6aa;}
-  .opt .rec{color:#7bdc8a;font-size:11px;letter-spacing:.1em;}
+    text-transform:uppercase;opacity:.7;transition:opacity .3s;}
 </style>
 </head>
 <body>
-<div id="wrap"><div id="stage">
-  <canvas id="game"></canvas>
-</div></div>
-
-<!-- touch overlay (revealed only on touch-capable devices) -->
-<div id="touch">
-  <div id="dragSurface"></div>
-  <div id="btnLeft"  class="tbtn">&#9664;</div>
-  <div id="btnRight" class="tbtn">&#9654;</div>
-  <div id="btnFire"  class="tbtn">FIRE</div>
-  <div id="btnGear"  class="tbtn util">&#9881;</div>
-  <div id="btnPause" class="tbtn util">&#10073;&#10073;</div>
-  <div id="btnMute"  class="tbtn util">&#128266;</div>
-</div>
-
-<!-- control-scheme chooser -->
-<div id="menu"><div id="menuCard">
-  <h2>TOUCH CONTROLS</h2>
-  <p>Pick how you want to play. Change anytime with &#9881;.</p>
-  <button class="opt" data-scheme="DRAG">Drag to steer <span class="rec">&#9733; RECOMMENDED</span>
-    <span class="sub">Slide a finger anywhere to move. Auto-fire.</span></button>
-  <button class="opt" data-scheme="BUTTONS">On-screen buttons
-    <span class="sub">&#9664; &#9654; to move, FIRE to shoot.</span></button>
-  <button class="opt" data-scheme="OFF">Keyboard only
-    <span class="sub">Hide touch controls (use a paired keyboard).</span></button>
-</div></div>
-
+<canvas id="game"></canvas>
 <div id="note">Vector Defense Grid · best on desktop with a keyboard</div>
 
 <script>
@@ -132,38 +49,19 @@ const COL = {
 // ============================================================
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const stageEl = document.getElementById('stage');
-const view = {scale:1, dpr:1, offX:0, offY:0};   // offX/Y = canvas top-left in CSS px (for touch math)
+const view = {scale:1, dpr:1};
 
 function resize(){
-  const dpr = Math.min(2, window.devicePixelRatio || 1);   // DPR cap = original behavior (all sizes)
-  // Desktop uses the ORIGINAL dimension source (window.inner*), so the desktop
-  // render path is byte-for-byte identical to the original. The stage-box
-  // measurement — which exists to honor safe-area insets and dynamic mobile
-  // browser chrome — is confined to coarse-pointer / small (phone/tablet) layouts.
-  const coarse = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
-  const small  = Math.min(window.innerWidth, window.innerHeight) < 820;
-  let availW, availH;
-  if(coarse || small){
-    availW = Math.max(1, stageEl.clientWidth  || window.innerWidth  || W);
-    availH = Math.max(1, stageEl.clientHeight || window.innerHeight || H);
-  } else {
-    availW = window.innerWidth; availH = window.innerHeight;   // original desktop path, untouched
-  }
-  const scale = Math.min(availW / W, availH / H);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
   view.scale = scale; view.dpr = dpr;
   canvas.style.width  = (W*scale)+'px';
   canvas.style.height = (H*scale)+'px';
   canvas.width  = Math.round(W*scale*dpr);
   canvas.height = Math.round(H*scale*dpr);
   ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0); // base transform; shake added per-frame
-  // cache canvas position for touch->logical mapping (only needed on touch layouts)
-  if(coarse || small){ const r = canvas.getBoundingClientRect(); view.offX = r.left; view.offY = r.top; }
 }
 window.addEventListener('resize', resize);
-// orientation/chrome changes report stale sizes for a beat on iOS — settle then re-measure
-window.addEventListener('orientationchange', ()=>{ resize(); setTimeout(resize,120); setTimeout(resize,350); });
-if(window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 resize();
 
 // ============================================================
@@ -385,8 +283,6 @@ const Music = {
 // INPUT
 // ============================================================
 const keys = Object.create(null);
-// Touch input state, merged into the sim's input read. Untouched on desktop.
-const touch = { scheme:null, active:false, dragDX:0, left:false, right:false, fire:false };
 const PREVENT = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space']);
 window.addEventListener('keydown', e=>{
   Audio.init(); Audio.resume();
@@ -395,14 +291,7 @@ window.addEventListener('keydown', e=>{
   keys[e.code] = true;
 }, {passive:false});
 window.addEventListener('keyup', e=>{ keys[e.code]=false; });
-window.addEventListener('blur', ()=>{
-  for(const k in keys) keys[k]=false;
-  touch.left=touch.right=touch.fire=touch.active=false;   // never leave a button stuck
-});
-// iOS/Safari only allow AudioContext to start inside a user gesture — unlock on first touch too
-function audioUnlock(){ Audio.init(); Audio.resume(); }
-window.addEventListener('pointerdown', audioUnlock, {passive:true});
-window.addEventListener('touchstart', audioUnlock, {passive:true});
+window.addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; });
 
 // ============================================================
 // SMALL UTILS
@@ -570,7 +459,6 @@ function saveBest(s){ if(s>bestScore){ bestScore=s; try{ localStorage.setItem('s
 let G = newGame(false);
 G.mode = 'TITLE';
 let titleAnim = 0;
-let titleEnemies = null;   // cached title-screen formation (built lazily)
 
 // ============================================================
 // WAVE CONFIG + FORMATION SPAWN
@@ -763,22 +651,9 @@ function step(g){
     const ai = computeAI(g);
     move = ai.move; wantFire = ai.fire;
   } else {
-    // desktop keyboard (unchanged)
     if(keys['ArrowLeft']||keys['KeyA']) move -= 1;
     if(keys['ArrowRight']||keys['KeyD']) move += 1;
     wantFire = !!(keys['Space']);
-    // touch overlay (additive; no effect when no scheme is active)
-    if(touch.scheme==='BUTTONS'){
-      if(touch.left)  move -= 1;
-      if(touch.right) move += 1;
-      if(touch.fire)  wantFire = true;
-    } else if(touch.scheme==='DRAG'){
-      if(touch.dragDX){                                  // relative drag, in logical px
-        g.player.x = clamp(g.player.x + touch.dragDX, 0, W-g.player.w);
-        touch.dragDX = 0;
-      }
-      wantFire = true;                                   // continuous auto-fire
-    }
   }
   g.player.x = clamp(g.player.x + move*PLAYER_SPEED, 0, W-g.player.w);
 
@@ -1156,18 +1031,11 @@ function drawTitle(){
   // formation flourish in the new vector style
   const t=titleAnim;
   ctx.save();
-  if(!titleEnemies){                       // build once; avoid 7 allocs/frame
-    titleEnemies = [];
-    for(let c=0;c<7;c++){
-      const fake = new Enemy(0,0, c%3===0?'ELITE':(c%3===1?'HUNTER':'GRUNT'), 0);
-      fake.state='FORMATION';
-      titleEnemies.push(fake);
-    }
-  }
   for(let c=0;c<7;c++){
-    const fake = titleEnemies[c];
-    fake.x = 170 + c*78 + Math.sin(t/40 + c)*14;
-    fake.y = 150 + Math.cos(t/50 + c)*8;
+    const ex = 170 + c*78 + Math.sin(t/40 + c)*14;
+    const ey = 150 + Math.cos(t/50 + c)*8;
+    const fake = new Enemy(0,0, c%3===0?'ELITE':(c%3===1?'HUNTER':'GRUNT'), 0);
+    fake.state='FORMATION'; fake.x=ex; fake.y=ey;
     drawEnemy(fake, t*16);
   }
   ctx.restore();
@@ -1260,98 +1128,6 @@ function handleKeyDown(code){
     else if(code==='Escape'){ G=newGame(false); G.mode='TITLE'; }
   }
 }
-
-// ============================================================
-// TOUCH CONTROLS  (capability-detected; desktop is never affected)
-// ============================================================
-(function setupTouch(){
-  const hasTouch = (navigator.maxTouchPoints>0) || ('ontouchstart' in window)
-                 || (window.matchMedia && matchMedia('(any-pointer: coarse)').matches);
-  if(!hasTouch) return;   // pure desktop / mouse-only: leave everything exactly as-is
-
-  const elTouch = document.getElementById('touch');
-  const elMenu  = document.getElementById('menu');
-  const surface = document.getElementById('dragSurface');
-  const bL=document.getElementById('btnLeft'),  bR=document.getElementById('btnRight'),
-        bF=document.getElementById('btnFire'),  bGear=document.getElementById('btnGear'),
-        bPause=document.getElementById('btnPause'), bMute=document.getElementById('btnMute');
-  const STORE='shardfall_touch_scheme';
-  const coarse = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
-  const small  = Math.min(window.innerWidth, window.innerHeight) < 820;
-  const touchPrimary = coarse || small;   // phone/tablet-like; desktop+touchscreen stays clean
-
-  function applyScheme(s){
-    touch.scheme=s;
-    touch.left=touch.right=touch.fire=touch.active=false; touch.dragDX=0;
-    const drag=s==='DRAG', btns=s==='BUTTONS', any=drag||btns;
-    // gear (and thus any touch UI) only when touch is the likely primary input
-    const showGear = any || touchPrimary;
-    elTouch.classList.toggle('on', showGear);
-    surface.style.display = drag?'block':'none';
-    bL.style.display=bR.style.display=bF.style.display = btns?'flex':'none';
-    bPause.style.display=bMute.style.display = any?'flex':'none';
-    bGear.style.display = showGear?'flex':'none';
-    try{ localStorage.setItem(STORE,s); }catch(e){}
-  }
-  const openMenu =()=> elMenu.classList.add('on');
-  const closeMenu=()=> elMenu.classList.remove('on');
-
-  elMenu.querySelectorAll('.opt').forEach(btn=>{
-    btn.addEventListener('click', ()=>{ audioUnlock(); applyScheme(btn.dataset.scheme); closeMenu(); });
-  });
-
-  // hold-to-repeat buttons -> touch state, with leak-proof release on every exit path
-  function holdBtn(el, set){
-    const apply=v=>{ el.classList.toggle('held',v); set(v); };
-    el.addEventListener('pointerdown', e=>{ e.preventDefault(); try{el.setPointerCapture(e.pointerId);}catch(_){} apply(true); }, {passive:false});
-    const rel=()=>apply(false);
-    el.addEventListener('pointerup',rel); el.addEventListener('pointercancel',rel);
-    el.addEventListener('lostpointercapture',rel); el.addEventListener('pointerleave',rel);
-  }
-  holdBtn(bL, v=>touch.left=v);
-  holdBtn(bR, v=>touch.right=v);
-  holdBtn(bF, v=>touch.fire=v);
-
-  function tapBtn(el, fn){ el.addEventListener('pointerup', e=>{ e.preventDefault(); fn(); }, {passive:false}); }
-  tapBtn(bGear, openMenu);
-  tapBtn(bPause, ()=>{ if((G.mode==='PLAYING'&&!G.demo)||G.mode==='PAUSED') handleKeyDown('KeyP'); });
-  tapBtn(bMute, ()=>{ handleKeyDown('KeyM'); bMute.textContent = Audio.muted?'\uD83D\uDD07':'\uD83D\uDD0A'; });
-
-  // drag surface: relative steering (no finger occlusion) + tap-to-act outside PLAYING
-  let dragId=null, lastX=0, startX=0, startY=0;
-  surface.addEventListener('pointerdown', e=>{
-    e.preventDefault(); dragId=e.pointerId; lastX=startX=e.clientX; startY=e.clientY;
-    try{ surface.setPointerCapture(e.pointerId); }catch(_){}
-    if(G.mode==='PLAYING' && !G.demo) touch.active=true;
-  }, {passive:false});
-  surface.addEventListener('pointermove', e=>{
-    if(e.pointerId!==dragId) return;
-    const dx=e.clientX-lastX; lastX=e.clientX;
-    if(G.mode==='PLAYING' && !G.demo) touch.dragDX += dx / Math.max(0.05, view.scale);
-  }, {passive:true});
-  function dragEnd(e){
-    if(e.pointerId!==dragId) return;
-    dragId=null; touch.active=false;
-    if(Math.abs(e.clientX-startX)<12 && Math.abs(e.clientY-startY)<12){   // it was a tap
-      if(G.mode==='TITLE'||G.mode==='GAMEOVER') handleKeyDown('Enter');
-      else if(G.mode==='PAUSED') handleKeyDown('KeyP');
-      else if(G.mode==='PLAYING' && G.demo) handleKeyDown('Enter');
-    }
-  }
-  surface.addEventListener('pointerup', dragEnd);
-  surface.addEventListener('pointercancel', e=>{ if(e.pointerId===dragId){ dragId=null; touch.active=false; } });
-
-  // initial scheme: honor saved choice, else recommend + offer the chooser
-  let saved=null; try{ saved=localStorage.getItem(STORE); }catch(e){}
-  if(saved==='DRAG'||saved==='BUTTONS'||saved==='OFF'){
-    applyScheme(saved);
-  } else {
-    applyScheme('OFF');
-    if(touchPrimary) openMenu();   // touch is the likely primary input -> ask once
-  }
-  // note text is desktop-accurate by default; make it touch-relevant only on phone/tablet
-  if(touchPrimary){ const n=document.getElementById('note'); if(n) n.textContent='Vector Defense Grid \u00B7 tap \u2699 to change controls'; }
-})();
 
 // ============================================================
 // MAIN LOOP — rAF + fixed-timestep accumulator

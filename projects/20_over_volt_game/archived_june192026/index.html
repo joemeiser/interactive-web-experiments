@@ -2,99 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>OVERVOLT &mdash; a neon volley duel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>OVERVOLT \u2014 a neon volley duel</title>
 <style>
-  html,body{margin:0;height:100%;background:#0a0a0f;overflow:hidden;
-            overscroll-behavior:none;touch-action:none;-webkit-tap-highlight-color:transparent;}
-  body{display:block;width:100vw;width:100dvw;height:100vh;height:100dvh;position:fixed;inset:0;}
-  canvas{display:block;width:100vw;width:100dvw;height:100vh;height:100dvh;background:#0a0a0f;
+  html,body{margin:0;height:100%;background:#0a0a0f;overflow:hidden;}
+  body{display:block;}
+  canvas{display:block;width:100vw;height:100vh;background:#0a0a0f;
          image-rendering:auto;touch-action:none;}
   *{-webkit-user-select:none;user-select:none;}
-
-  /* ---- touch control layer (mobile only; pointer-events gated per element) ---- */
-  #touch{position:fixed;inset:0;z-index:5;pointer-events:none;display:none;
-         font-family:monospace;color:#cfe;}
-  #touch.on{display:block;}
-  .tzone{position:absolute;top:0;bottom:0;width:50%;pointer-events:auto;touch-action:none;}
-  .tzone.l{left:0;} .tzone.r{right:0;}
-  .tzone.hide{pointer-events:none;display:none;}
-  .tbtn{position:absolute;pointer-events:auto;touch-action:none;
-        display:flex;align-items:center;justify-content:center;
-        font:700 14px/1 monospace;letter-spacing:1px;color:#cfe;
-        background:rgba(20,24,38,0.55);border:2px solid rgba(120,200,220,0.45);
-        border-radius:12px;backdrop-filter:blur(2px);user-select:none;}
-  .tbtn:active{background:rgba(40,70,90,0.8);border-color:#7fe;color:#fff;}
-  .tbtn.power{width:84px;height:84px;border-radius:50%;font-size:13px;
-        border-color:rgba(255,150,0,0.6);color:#ffb24d;
-        bottom:calc(18px + env(safe-area-inset-bottom));}
-  .tbtn.power.on{box-shadow:0 0 18px rgba(255,150,0,0.7);border-color:#ff9600;color:#fff;
-        background:rgba(120,70,0,0.6);}
-  .tbtn.power.l{left:calc(18px + env(safe-area-inset-left));}
-  .tbtn.power.r{right:calc(18px + env(safe-area-inset-right));}
-  .tbtn.mv{width:74px;height:64px;font-size:22px;}
-  .tbtn.up.l{left:calc(18px + env(safe-area-inset-left));bottom:calc(190px + env(safe-area-inset-bottom));}
-  .tbtn.dn.l{left:calc(18px + env(safe-area-inset-left));bottom:calc(118px + env(safe-area-inset-bottom));}
-  .tbtn.up.r{right:calc(18px + env(safe-area-inset-right));bottom:calc(190px + env(safe-area-inset-bottom));}
-  .tbtn.dn.r{right:calc(18px + env(safe-area-inset-right));bottom:calc(118px + env(safe-area-inset-bottom));}
-  .tbtn.sys{width:46px;height:40px;font-size:16px;top:calc(12px + env(safe-area-inset-top));
-        background:rgba(20,24,38,0.45);border-color:rgba(120,140,180,0.4);color:#9ab;}
-  #btnPause{right:calc(70px + env(safe-area-inset-right));}
-  #btnMute{right:calc(16px + env(safe-area-inset-right));}
-  .buttons-only .tzone{pointer-events:none;}      /* in buttons mode, drag zones off */
-  .follow-only .tbtn.mv{display:none;}            /* in follow mode, hide d-pad */
-
-  /* ---- full-screen overlays (HTML, above canvas) ---- */
-  .ov{position:fixed;inset:0;z-index:20;display:none;
-      flex-direction:column;align-items:center;justify-content:center;text-align:center;
-      background:rgba(8,8,14,0.92);color:#cfe;font-family:monospace;
-      padding:calc(20px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));}
-  .ov.on{display:flex;}
-  .ov h1{font-size:30px;letter-spacing:3px;margin:0 0 6px;color:#00ffff;
-         text-shadow:0 0 18px #00ffff;}
-  .ov p{font-size:15px;color:#9ab;margin:6px 18px;max-width:520px;line-height:1.5;}
-  .ov .big{font-size:64px;line-height:1;margin:10px;color:#ffd24d;text-shadow:0 0 20px #ff9600;}
-  .ov button{margin:9px;padding:14px 22px;min-width:240px;cursor:pointer;
-      font:700 16px/1 monospace;letter-spacing:1px;color:#cfe;
-      background:rgba(20,24,38,0.7);border:2px solid rgba(120,200,220,0.5);border-radius:12px;}
-  .ov button:active{background:rgba(40,70,90,0.9);color:#fff;}
-  .ov button .rec{display:block;font-size:11px;color:#ff9600;letter-spacing:1px;margin-top:5px;}
-  .ov .link{margin-top:14px;font-size:13px;color:#7aa;text-decoration:underline;cursor:pointer;}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important;}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-
-<!-- Touch controls (shown only on touch-capable devices, in landscape) -->
-<div id="touch">
-  <div class="tzone l" id="dragL"></div>
-  <div class="tzone r" id="dragR"></div>
-  <div class="tbtn mv up l" id="upL">&#9650;</div>
-  <div class="tbtn mv dn l" id="dnL">&#9660;</div>
-  <div class="tbtn mv up r" id="upR">&#9650;</div>
-  <div class="tbtn mv dn r" id="dnR">&#9660;</div>
-  <div class="tbtn power l" id="powL">POWER</div>
-  <div class="tbtn power r" id="powR">POWER</div>
-  <div class="tbtn sys" id="btnPause">&#10073;&#10073;</div>
-  <div class="tbtn sys" id="btnMute">&#128266;</div>
-</div>
-
-<!-- Control-scheme picker (first launch on touch, re-openable) -->
-<div class="ov" id="schemeOv">
-  <h1>TOUCH CONTROLS</h1>
-  <p>Pick how you'd like to move your paddle. You can change this later from the menu.</p>
-  <button id="schFollow">TOUCH-FOLLOW<span class="rec">RECOMMENDED &mdash; drag your side, paddle tracks your finger</span></button>
-  <button id="schButtons">ON-SCREEN BUTTONS<span class="rec">UP / DOWN / POWER pads on each side</span></button>
-</div>
-
-<!-- Rotate prompt (mobile portrait only) -->
-<div class="ov" id="rotateOv">
-  <div class="big">&#8635;</div>
-  <h1>ROTATE TO PLAY</h1>
-  <p>OVERVOLT is built for landscape. Turn your device sideways to start the duel.</p>
-</div>
-
 <script>
 "use strict";
 (function(){
@@ -201,18 +120,11 @@ Paddle.prototype.applyPower=function(held){
   if(this.powerAvail&&held){this.powerActive=true;this.x=this.isLeft?this.ox+POFF:this.ox-POFF;}
   else{this.powerActive=false;this.x=this.ox;}
 };
-Paddle.prototype.updateHuman=function(keys,upK,downK,powerK,tc){
+Paddle.prototype.updateHuman=function(keys,upK,downK,powerK){
   this.px=this.x;this.py=this.y;this.vel=0;this.flash*=0.82;this.chargedFlash*=0.93;
-  var up=!!keys[upK], down=!!keys[downK], pow=!!keys[powerK];
-  if(tc){ up=up||tc.up; down=down||tc.down; pow=pow||tc.power; }
-  this.applyPower(pow);
-  if(up){this.y-=PADDLE_SPEED;this.vel=-PADDLE_SPEED;}
-  if(down){this.y+=PADDLE_SPEED;this.vel=PADDLE_SPEED;}
-  // touch-follow: move toward finger, capped at PADDLE_SPEED so physics match keyboard
-  if(tc&&tc.follow&&tc.targetY!=null&&!up&&!down){
-    var d=tc.targetY-this.cy();
-    if(Math.abs(d)>0.5){var m=clamp(d,-PADDLE_SPEED,PADDLE_SPEED);this.y+=m;this.vel=m;}
-  }
+  this.applyPower(keys[powerK]);
+  if(keys[upK]){this.y-=PADDLE_SPEED;this.vel=-PADDLE_SPEED;}
+  if(keys[downK]){this.y+=PADDLE_SPEED;this.vel=PADDLE_SPEED;}
   this.clampY();
 };
 Paddle.prototype.updateAI=function(ball,game){
@@ -410,9 +322,9 @@ function update(){
   if(game.state!=="playing")return;
   if(game.freeze>0){game.freeze--;return;}          // hit-stop: hold the frame on power impact
   var p1=game.p1,p2=game.p2,b=game.ball;
-  p1.updateHuman(keys,"w","s","d",touchL);
+  p1.updateHuman(keys,"w","s","d");
   if(game.mode==="1p")p2.updateAI(b,game);
-  else p2.updateHuman(keys,"ArrowUp","ArrowDown","ArrowLeft",touchR);
+  else p2.updateHuman(keys,"ArrowUp","ArrowDown","ArrowLeft");
   var r=b.update(p1,p2,game);
   if(r)handleScore(r);
 }
@@ -423,19 +335,14 @@ function update(){
 var canvas=document.getElementById("c"),ctx=canvas.getContext("2d");
 var DPR=1,scale=1,offX=0,offY=0,cssW=GW,cssH=GH;
 function resize(){
-  var vv=window.visualViewport;
-  if(isTouch&&vv){cssW=Math.round(vv.width);cssH=Math.round(vv.height);} // mobile: exclude UI chrome
-  else{cssW=window.innerWidth;cssH=window.innerHeight;}                   // desktop: original path, untouched
+  cssW=window.innerWidth;cssH=window.innerHeight;
   DPR=Math.min(window.devicePixelRatio||1,2);
   canvas.width=Math.floor(cssW*DPR);canvas.height=Math.floor(cssH*DPR);
   canvas.style.width=cssW+"px";canvas.style.height=cssH+"px";
   scale=Math.min(cssW/GW,cssH/GH);
   offX=(cssW-GW*scale)/2;offY=(cssH-GH*scale)/2;
-  if(typeof updateMobileUI==="function")updateMobileUI();
 }
 window.addEventListener("resize",resize);
-window.addEventListener("orientationchange",function(){setTimeout(resize,80);});
-if(window.visualViewport)window.visualViewport.addEventListener("resize",resize);
 
 function setNeon(color,blur){ctx.shadowColor=color;ctx.shadowBlur=blur;}
 function clearNeon(){ctx.shadowBlur=0;ctx.shadowColor="transparent";}
@@ -579,13 +486,8 @@ function drawMenu(){
   ctx.fillStyle=COL_POWER;ctx.font="15px monospace";
   ctx.fillText("Land 3 returns to charge \u2014 hold POWER to overvolt a shot",GW/2,450);
   ctx.fillStyle="#666";ctx.font="15px monospace";
-  if(isTouch){
-    ctx.fillText("Tap ONE PLAYER or TWO PLAYERS to begin",GW/2,498);
-    ctx.fillStyle="#557";ctx.fillText("drag your side to move \u2022 hold POWER to overvolt",GW/2,524);
-  }else{
-    ctx.fillText("P1: W / S move \u2014 D power      P2: \u2191 / \u2193 move \u2014 \u2190 power",GW/2,498);
-    ctx.fillText("P pause \u2022 M mute \u2022 ESC menu      \u2022      best on desktop / keyboard",GW/2,524);
-  }
+  ctx.fillText("P1: W / S move \u2014 D power      P2: \u2191 / \u2193 move \u2014 \u2190 power",GW/2,498);
+  ctx.fillText("P pause \u2022 M mute \u2022 ESC menu      \u2022      best on desktop / keyboard",GW/2,524);
 }
 function drawPauseOverlay(){
   dimField(0.55);
@@ -593,7 +495,7 @@ function drawPauseOverlay(){
   ctx.fillStyle=COL_BALL;ctx.font="bold 54px monospace";setNeon(COL_BALL,12);
   ctx.fillText("PAUSED",GW/2,GH/2-20);clearNeon();
   ctx.fillStyle="#aaa";ctx.font="20px monospace";
-  ctx.fillText(isTouch?"Tap to resume \u2022 tap bottom for menu":"P / ESC to resume",GW/2,GH/2+40);
+  ctx.fillText("P / ESC to resume",GW/2,GH/2+40);
 }
 function drawGameOver(){
   dimField(0.6);
@@ -605,7 +507,7 @@ function drawGameOver(){
   ctx.fillStyle=COL_BALL;ctx.font="16px monospace";
   ctx.fillText("LONGEST RALLY: "+game.bestRally,GW/2,GH/2+55);
   ctx.fillStyle="#aaa";ctx.font="20px monospace";
-  ctx.fillText(isTouch?"Tap to rematch \u2022 tap bottom for menu":"SPACE to rematch \u2022 ESC for menu",GW/2,GH/2+92);
+  ctx.fillText("SPACE to rematch \u2022 ESC for menu",GW/2,GH/2+92);
 }
 function roundRect(x,y,w,h,r){
   ctx.beginPath();
@@ -636,31 +538,16 @@ function render(alpha){
 // MAIN LOOP — fixed-timestep accumulator (identical physics at any refresh)
 // ============================================================================
 var acc=0,last=performance.now();
-var _fatalShown=false;
-function showFatal(err){
-  if(_fatalShown)return;_fatalShown=true;
-  try{var d=document.createElement("div");
-    d.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:99;padding:10px 14px;"
-      +"background:#400;color:#fdd;font:12px/1.45 monospace;white-space:pre-wrap;"
-      +"max-height:45%;overflow:auto;";
-    d.textContent="OVERVOLT hit an error (please report):\n"+((err&&err.stack)||err);
-    (document.body||document.documentElement).appendChild(d);
-  }catch(_){}
-}
-window.addEventListener("error",function(ev){showFatal(ev.error||ev.message);});
 function frame(now){
-  try{
-    var dt=(now-last)/1000;last=now;
-    if(dt>0.25)dt=0.25;            // anti spiral-of-death
-    acc+=dt;
-    var guardSteps=0;
-    while(acc>=STEP&&guardSteps<8){update();acc-=STEP;guardSteps++;}
-    if(guardSteps>=8)acc=0;
-    // interpolate only during live play; freezing/pausing/menus render the exact state
-    var alpha=(game.state==="playing"&&game.freeze===0)?(acc/STEP):1;
-    render(alpha);
-    if(isTouch)updateMobileUI();
-  }catch(err){showFatal(err);}     // a bad frame must not silently kill the loop
+  var dt=(now-last)/1000;last=now;
+  if(dt>0.25)dt=0.25;            // anti spiral-of-death
+  acc+=dt;
+  var guardSteps=0;
+  while(acc>=STEP&&guardSteps<8){update();acc-=STEP;guardSteps++;}
+  if(guardSteps>=8)acc=0;
+  // interpolate only during live play; freezing/pausing/menus render the exact state
+  var alpha=(game.state==="playing"&&game.freeze===0)?(acc/STEP):1;
+  render(alpha);
   requestAnimationFrame(frame);
 }
 
@@ -668,28 +555,12 @@ function frame(now){
 // INPUT
 // ============================================================================
 var keys={};
-// ---- touch capability + per-side touch state (no-op on desktop) ----
-var minScreen=Math.min(screen.width||9999,screen.height||9999);
-var _mm=window.matchMedia;
-var _coarse=!!(_mm&&_mm("(pointer: coarse)").matches);
-var _fine=!!(_mm&&_mm("(pointer: fine)").matches);
-// Touch device = touch is the PRIMARY pointer. Touchscreen laptops/desktops ALSO
-// expose a fine pointer (mouse/trackpad) + maxTouchPoints>0, so we must NOT treat
-// those signals alone as "mobile" — that would hijack desktop play with a picker.
-var isTouch=_mm ? (_coarse&&!_fine)
-                : (("ontouchstart" in window)&&navigator.maxTouchPoints>0&&minScreen<=820);
-var isMobile=isTouch&&minScreen<=820;     // phones + tablets, not big touch monitors
-var touchScheme="follow";                 // "follow" | "buttons"
-var touchL={up:false,down:false,power:false,follow:true,targetY:null,dragId:null};
-var touchR={up:false,down:false,power:false,follow:true,targetY:null,dragId:null};
 function startGesture(){synth.ensure();}
 window.addEventListener("keydown",function(e){
   var k=e.key;
   if(k===" "||k==="ArrowUp"||k==="ArrowDown"||k==="ArrowLeft"||k==="ArrowRight")e.preventDefault();
   startGesture();
-  // if the touch-scheme picker is open, a keypress means they're using a keyboard —
-  // dismiss it so play is never blocked by the overlay.
-  if(TEL&&TEL.schemeOv&&TEL.schemeOv.classList.contains("on"))TEL.schemeOv.classList.remove("on");
+  // normalize single chars to lowercase for movement keys
   var lk=(k.length===1)?k.toLowerCase():k;
   var wasDown=!!keys[lk];
   keys[lk]=true;
@@ -716,151 +587,14 @@ window.addEventListener("keyup",function(e){
   delete keys[lk];
 });
 window.addEventListener("blur",function(){keys={};if(game.state==="playing")game.state="paused";});
-// ---- canvas taps: map to game space, drive menu/pause/gameover (mouse + touch) ----
-function canvasTap(clientX,clientY){
+canvas.addEventListener("pointerdown",function(){
   startGesture();
-  if(!isTouch){                                // desktop mouse: ORIGINAL behavior, unchanged
-    if(game.state==="menu")newMatch(game.menuSel===1?"1p":"2p");
-    else if(game.state==="gameover")newMatch(game.mode);
-    return;
-  }
-  var gy=(clientY-offY)/scale;                 // game-space Y of the tap (touch only below)
-  if(game.state==="menu"){
-    if(clientX<70&&clientY<70)return;          // corner reserved for controls re-pick
-    // option rows are drawn at y=318 (1P) and y=362 (2P)
-    if(gy>=296&&gy<=340){game.menuSel=1;newMatch("1p");}
-    else if(gy>=340&&gy<=386){game.menuSel=2;newMatch("2p");}
-    else newMatch(game.menuSel===1?"1p":"2p"); // tap elsewhere = start current
-  }else if(game.state==="paused"){
-    if(gy>GH-90)gotoMenu(); else game.state="playing";
-  }else if(game.state==="gameover"){
-    if(gy>GH-70)gotoMenu(); else newMatch(game.mode);
-  }
-}
-function gotoMenu(){game.state="menu";game.shake=0;game.goalFlash=0;game.scorePop=0;game.freeze=0;keys={};
-  touchL.up=touchL.down=touchL.power=false;touchL.targetY=null;
-  touchR.up=touchR.down=touchR.power=false;touchR.targetY=null;}
-canvas.addEventListener("pointerdown",function(e){canvasTap(e.clientX,e.clientY);});
-
-// ============================================================================
-// TOUCH CONTROLS (Pointer Events; desktop keyboard/mouse path untouched)
-// ============================================================================
-var TEL={}; ["touch","dragL","dragR","upL","dnL","upR","dnR","powL","powR",
-  "btnPause","btnMute","schemeOv","rotateOv","schFollow","schButtons"]
-  .forEach(function(id){TEL[id]=document.getElementById(id);});
-
-function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
-function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
-
-function applyScheme(s){
-  touchScheme=(s==="buttons")?"buttons":"follow";
-  touchL.follow=touchR.follow=(touchScheme==="follow");
-  TEL.touch.classList.toggle("follow-only",touchScheme==="follow");
-  TEL.touch.classList.toggle("buttons-only",touchScheme==="buttons");
-}
-
-// drag zone -> absolute follow target (per side, capped in updateHuman)
-function bindDrag(el,side){
-  function set(e){side.targetY=clamp((e.clientY-offY)/scale,BS,GH-BS);}
-  el.addEventListener("pointerdown",function(e){
-    if(game.state!=="playing")return;          // taps in menu/pause go to canvas, not here
-    startGesture();el.setPointerCapture(e.pointerId);side.dragId=e.pointerId;set(e);e.preventDefault();
-  },{passive:false});
-  el.addEventListener("pointermove",function(e){if(side.dragId===e.pointerId)set(e);},{passive:false});
-  function end(e){if(side.dragId===e.pointerId){side.dragId=null;side.targetY=null;}}
-  el.addEventListener("pointerup",end);el.addEventListener("pointercancel",end);
-}
-bindDrag(TEL.dragL,touchL);bindDrag(TEL.dragR,touchR);
-
-// hold buttons (up/down/power)
-function bindHold(el,obj,prop){
-  function on(e){startGesture();obj[prop]=true;el.setPointerCapture&&el.setPointerCapture(e.pointerId);
-    if(prop==="power")el.classList.add("on");e.preventDefault();}
-  function off(){obj[prop]=false;if(prop==="power")el.classList.remove("on");}
-  el.addEventListener("pointerdown",on,{passive:false});
-  el.addEventListener("pointerup",off);el.addEventListener("pointercancel",off);
-  el.addEventListener("pointerleave",off);
-}
-bindHold(TEL.upL,touchL,"up");bindHold(TEL.dnL,touchL,"down");bindHold(TEL.powL,touchL,"power");
-bindHold(TEL.upR,touchR,"up");bindHold(TEL.dnR,touchR,"down");bindHold(TEL.powR,touchR,"power");
-
-// system buttons
-TEL.btnPause.addEventListener("pointerdown",function(e){e.preventDefault();startGesture();
-  if(game.state==="playing")game.state="paused";else if(game.state==="paused")game.state="playing";});
-function refreshMute(){TEL.btnMute.innerHTML=synth.muted?"&#128263;":"&#128266;";}
-TEL.btnMute.addEventListener("pointerdown",function(e){e.preventDefault();startGesture();
-  synth.muted=!synth.muted;refreshMute();});
-
-// scheme picker
-TEL.schFollow.addEventListener("click",function(){chooseScheme("follow");});
-TEL.schButtons.addEventListener("click",function(){chooseScheme("buttons");});
-function chooseScheme(s){applyScheme(s);lsSet("overvolt.scheme",s);TEL.schemeOv.classList.remove("on");startGesture();}
-
-// In-menu "change controls" affordance: long-ish press top-left re-opens picker.
-// (kept off-canvas-text to avoid clutter; double-tap top-left corner)
-var cornerTaps=0,cornerTimer=0;
-canvas.addEventListener("pointerdown",function(e){
-  if(!isTouch||game.state!=="menu")return;
-  if(e.clientX<70&&e.clientY<70){cornerTaps++;clearTimeout(cornerTimer);
-    cornerTimer=setTimeout(function(){cornerTaps=0;},500);
-    if(cornerTaps>=2){cornerTaps=0;TEL.schemeOv.classList.add("on");}}
+  if(game.state==="menu")newMatch(game.menuSel===1?"1p":"2p");
+  else if(game.state==="gameover")newMatch(game.mode);
 });
 
-// ---- mobile UI visibility: landscape gate, rotate prompt, control groups ----
-var _uiKey="";
-function updateMobileUI(){
-  if(!isTouch){TEL.touch.classList.remove("on");return;}
-  var portrait=cssW<cssH;
-  var showRotate=isMobile&&portrait;
-  // rotate prompt
-  TEL.rotateOv.classList.toggle("on",showRotate);
-  if(showRotate&&game.state==="playing")game.state="paused";
-  // touch layer: on in landscape (or non-mobile touch), hidden under rotate prompt
-  var layerOn=isTouch&&!showRotate;
-  TEL.touch.classList.toggle("on",layerOn);
-  // only show paddle controls during live play; system buttons whenever layer is on
-  var playing=(game.state==="playing");
-  var key=[layerOn,playing,touchScheme,game.mode].join("|");
-  if(key!==_uiKey){
-    _uiKey=key;
-    var dispCtl=playing?"":"none";
-    // drag zones + power always for active human side(s); d-pad only in buttons scheme
-    TEL.dragL.style.display=(playing&&touchScheme==="follow")?"":"none";
-    TEL.dragR.style.display=(playing&&touchScheme==="follow"&&game.mode==="2p")?"":"none";
-    TEL.powL.style.display=dispCtl;
-    TEL.powR.style.display=(playing&&game.mode==="2p")?"":"none";
-    var dpad=(playing&&touchScheme==="buttons");
-    TEL.upL.style.display=dpad?"":"none";TEL.dnL.style.display=dpad?"":"none";
-    TEL.upR.style.display=(dpad&&game.mode==="2p")?"":"none";
-    TEL.dnR.style.display=(dpad&&game.mode==="2p")?"":"none";
-    // in 1p mode the right-side drag also lets a coach nudge? No — keep right inert.
-  }
-}
-
-// pause when tab/app backgrounded (mobile-friendly companion to blur handler)
-document.addEventListener("visibilitychange",function(){
-  if(document.hidden&&game.state==="playing")game.state="paused";});
-
-// ---- boot ----
-try{
-  if(isTouch){
-    var saved=lsGet("overvolt.scheme");
-    if(saved){applyScheme(saved);}            // persisted: don't ask again
-    else{applyScheme("follow");TEL.schemeOv.classList.add("on");}  // first run: ask
-    refreshMute();
-  }
-  resize();
-  updateMobileUI();
-}catch(err){showFatal(err);}
+resize();
 requestAnimationFrame(frame);
-
-// ---- headless test hook (harmless on web; used by the logic harness) ----
-window.__OVERVOLT__={game:game,update:update,newMatch:newMatch,handleScore:handleScore,
-  keys:keys,touchL:touchL,touchR:touchR,Ball:Ball,Paddle:Paddle,
-  resize:resize,canvasTap:canvasTap,isTouch:isTouch,isMobile:isMobile,
-  view:function(){return{cssW:cssW,cssH:cssH,DPR:DPR,scale:scale,offX:offX,offY:offY,
-    cw:canvas.width,ch:canvas.height,sw:canvas.style.width,sh:canvas.style.height};},
-  cfg:{GW:GW,GH:GH,PW:PW,PH:PH,BS:BS,WIN_SCORE:WIN_SCORE,ABS_MAX:ABS_MAX,STEP:STEP}};
 })();
 </script>
 </body>

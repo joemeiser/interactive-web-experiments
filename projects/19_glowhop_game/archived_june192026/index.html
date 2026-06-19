@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>GLOWHOP — Neon Crossing</title>
 <style>
   :root {
@@ -15,16 +15,12 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%; height: 100%;
-    height: 100svh;            /* dynamic viewport: avoids iOS Safari URL-bar jump */
-    height: 100dvh;
     background: #03040a;
     overflow: hidden;
     font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
     color: var(--txt);
     -webkit-user-select: none; user-select: none;
-    -webkit-tap-highlight-color: transparent;
     touch-action: none;
-    overscroll-behavior: none;
   }
   #wrap {
     position: fixed; inset: 0;
@@ -38,124 +34,15 @@
   }
   #hint {
     position: fixed; bottom: 9px; left: 0; right: 0;
-    bottom: calc(9px + env(safe-area-inset-bottom, 0px));
     text-align: center; font-size: 12px; letter-spacing: 1.5px;
     color: rgba(231,246,239,0.38);
     pointer-events: none;
   }
-
-  /* ---------- Touch control UI (hidden until enabled) ---------- */
-  #touchLayer {
-    position: fixed; inset: 0;
-    display: none;                 /* toggled on for touch devices in PLAY */
-    z-index: 5;
-    touch-action: none;
-  }
-  #touchLayer.on { display: block; }
-
-  /* On-screen D-pad */
-  #dpad {
-    position: absolute;
-    left: 50%; transform: translateX(-50%);
-    bottom: calc(22px + env(safe-area-inset-bottom, 0px));
-    display: none;
-    width: 190px; height: 190px;
-    opacity: 0.9;
-  }
-  #dpad.on { display: block; }
-  .dbtn {
-    position: absolute; width: 62px; height: 62px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 14px;
-    background: rgba(16,30,55,0.62);
-    border: 1px solid rgba(92,242,196,0.40);
-    box-shadow: 0 0 18px rgba(92,242,196,0.12);
-    color: var(--neon); font-size: 26px; line-height: 1;
-    -webkit-user-select: none; user-select: none;
-    touch-action: none;
-  }
-  .dbtn:active { background: rgba(92,242,196,0.22); }
-  #d-up    { left: 64px; top: 0; }
-  #d-down  { left: 64px; top: 128px; }
-  #d-left  { left: 0;    top: 64px; }
-  #d-right { left: 128px;top: 64px; }
-
-  /* Swipe affordance text */
-  #swipeHint {
-    position: absolute; left: 0; right: 0;
-    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
-    text-align: center; font-size: 12px; letter-spacing: 1px;
-    color: rgba(231,246,239,0.45); display: none;
-  }
-  #swipeHint.on { display: block; }
-
-  /* Settings / scheme button */
-  #ctlBtn {
-    position: fixed; z-index: 7;
-    top: calc(10px + env(safe-area-inset-top, 0px));
-    right: calc(10px + env(safe-area-inset-right, 0px));
-    width: 40px; height: 40px; display: none;
-    align-items: center; justify-content: center;
-    border-radius: 10px; font-size: 20px;
-    background: rgba(16,30,55,0.55);
-    border: 1px solid rgba(92,242,196,0.30);
-    color: var(--neon);
-  }
-  #ctlBtn.on { display: flex; }
-
-  /* First-run scheme chooser */
-  #schemeMenu {
-    position: fixed; inset: 0; z-index: 20;
-    display: none; align-items: center; justify-content: center;
-    background: rgba(3,4,10,0.82);
-    padding: env(safe-area-inset-top,0) env(safe-area-inset-right,0)
-             env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
-  }
-  #schemeMenu.on { display: flex; }
-  #schemeCard {
-    width: min(86vw, 340px);
-    background: rgba(12,18,40,0.96);
-    border: 1px solid rgba(92,242,196,0.35);
-    border-radius: 16px; padding: 22px 20px 18px;
-    box-shadow: 0 0 60px rgba(92,242,196,0.18);
-    text-align: center;
-  }
-  #schemeCard h2 { color: var(--neon); font-size: 22px; margin-bottom: 4px; letter-spacing: 1px; }
-  #schemeCard p  { color: rgba(231,246,239,0.7); font-size: 13px; margin-bottom: 16px; }
-  .schemeOpt {
-    display: block; width: 100%; margin: 9px 0; padding: 13px 12px;
-    border-radius: 11px; font-size: 16px; font-weight: bold;
-    background: rgba(16,30,55,0.7);
-    border: 1px solid rgba(92,242,196,0.35);
-    color: var(--txt); cursor: pointer;
-  }
-  .schemeOpt .rec { display:block; font-size: 11px; font-weight: normal; color: var(--neon); margin-top: 3px; }
-  .schemeOpt:active { background: rgba(92,242,196,0.2); }
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
 <div id="hint">ARROW KEYS / WASD to hop · SPACE to start · best on desktop</div>
-
-<!-- Touch controls (shown only on touch-capable devices) -->
-<div id="touchLayer">
-  <div id="swipeHint">swipe to hop · tap to hop forward</div>
-  <div id="dpad">
-    <div class="dbtn" id="d-up">▲</div>
-    <div class="dbtn" id="d-left">◀</div>
-    <div class="dbtn" id="d-right">▶</div>
-    <div class="dbtn" id="d-down">▼</div>
-  </div>
-</div>
-<div id="ctlBtn">⚙</div>
-<div id="schemeMenu">
-  <div id="schemeCard">
-    <h2>TOUCH CONTROLS</h2>
-    <p>Pick how you'd like to hop. You can change this anytime with the ⚙ button.</p>
-    <button class="schemeOpt" data-scheme="swipe">Swipe / Tap<span class="rec">recommended</span></button>
-    <button class="schemeOpt" data-scheme="buttons">On-screen buttons</button>
-  </div>
-</div>
 <script>
 (function () {
 "use strict";
@@ -180,18 +67,7 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener("resize", resize);
-window.addEventListener("orientationchange", () => { setTimeout(resize, 60); });
-if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
 resize();
-
-// ---------- Deterministic seams (used by headless harness; transparent in normal play) ----------
-// Game logic reads time via gnow() and randomness via rng() so a test harness can
-// drive the simulation with a fake clock + seeded RNG. In the browser these default
-// to a sim clock advanced by the fixed-timestep loop and Math.random.
-let simMs = 0;                 // advanced by the fixed-step loop, in ms
-function gnow() { return simMs; }
-let rng = Math.random;
-function setRng(fn) { rng = (typeof fn === "function") ? fn : Math.random; }
 
 // ---------- Palette (neon night) ----------
 const C = {
@@ -285,19 +161,19 @@ function saveBest(v) { try { localStorage.setItem("glowhop_best", String(v)); } 
 
 // ---------- Entities ----------
 function makeCar(lane) {
-  const w = [50, 80, 115, 150][Math.floor(rng() * 4)], h = 32;
+  const w = [50, 80, 115, 150][Math.floor(Math.random() * 4)], h = 32;
   const x = lane.dir === 1 ? -w : W;
   return { x, y: lane.y - h / 2, w, h, dir: lane.dir, base: lane.speed,
-           color: POD_COLORS[Math.floor(rng() * POD_COLORS.length)], _near: false };
+           color: POD_COLORS[Math.floor(Math.random() * POD_COLORS.length)], _near: false };
 }
 function makePlatform(lane) {
-  const units = lane.type === "drift" ? (2 + Math.floor(rng() * 3)) : (2 + Math.floor(rng() * 2));
+  const units = lane.type === "drift" ? (2 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 2));
   const unitW = lane.type === "drift" ? 46 : 40;
   const w = units * unitW, h = 34;
   const x = lane.dir === 1 ? -w : W;
   return { x, y: lane.y - h / 2, w, h, units, unitW, dir: lane.dir, base: lane.speed, type: lane.type,
-           diveTimer: lane.type === "skimmer" ? (2 + rng() * 3) : 0,
-           submerged: false, subPhase: rng() * Math.PI * 2 };
+           diveTimer: lane.type === "skimmer" ? (2 + Math.random() * 3) : 0,
+           submerged: false, subPhase: Math.random() * Math.PI * 2 };
 }
 function makeFx(x, y, color) { return { x, y, color, r: 5, life: 0.4 }; }
 function makePop(x, y, text, color) { return { x, y, text, color, life: 0.9 }; }
@@ -305,10 +181,8 @@ function makePop(x, y, text, color) { return { x, y, text, color, life: 0.9 }; }
 // ---------- Creature ----------
 const hopper = { x: START_X, y: START_HOP_Y, size: HOP, angle: 0, jumpT: 0, ridingDir: 0, ridingSpeed: 0, wing: 0 };
 const JUMP_DUR = 0.15;
-const _hc = { cx: 0, cy: 0 };   // reused to avoid per-frame allocation
-const _hr = { x: 0, y: 0, w: 0, h: 0 };
-function hopCenter() { _hc.cx = hopper.x + hopper.size / 2; _hc.cy = hopper.y + hopper.size / 2; return _hc; }
-function hopRect() { _hr.x = hopper.x; _hr.y = hopper.y; _hr.w = hopper.size; _hr.h = hopper.size; return _hr; }
+function hopCenter() { return { cx: hopper.x + hopper.size / 2, cy: hopper.y + hopper.size / 2 }; }
+function hopRect() { return { x: hopper.x, y: hopper.y, w: hopper.size, h: hopper.size }; }
 
 // ---------- Game state ----------
 const STATE = { TITLE: 0, PLAY: 1, DEAD: 2, WIN: 3 };
@@ -321,7 +195,7 @@ let recentDeaths = [];
 function resetHopper() {
   hopper.x = START_X; hopper.y = START_HOP_Y; hopper.angle = 0;
   hopper.jumpT = 0; hopper.ridingDir = 0; hopper.ridingSpeed = 0;
-  furthestY = START_HOP_Y; crossStartTime = gnow();
+  furthestY = START_HOP_Y; crossStartTime = performance.now();
 }
 function newGame() {
   lives = 3; score = 0; crossings = 0; difficulty = 1.0;
@@ -330,26 +204,11 @@ function newGame() {
   deathFlash = 0; shake = 0; winTimer = 0;
   resetHopper(); state = STATE.PLAY;
 }
-let curDiff = 1.0;             // cached effective difficulty for the current tick (read by spawn)
 function effectiveDifficulty() {
-  const now = gnow();
-  // In-place prune of stale death timestamps (no array allocation).
-  let n = 0;
-  for (let i = 0; i < recentDeaths.length; i++) {
-    if (now - recentDeaths[i] < 12000) recentDeaths[n++] = recentDeaths[i];
-  }
-  recentDeaths.length = n;
-  const struggle = Math.min(n, 3) * 0.12;
+  const now = performance.now();
+  recentDeaths = recentDeaths.filter(t => now - t < 12000);
+  const struggle = Math.min(recentDeaths.length, 3) * 0.12;
   return Math.max(0.7, difficulty - struggle);
-}
-// Read-only variant for the HUD: matches the original's per-frame display value
-// (recomputed every render, reflects current time on all screens) but allocates nothing
-// and does not mutate state during rendering.
-function peekDifficulty() {
-  const now = gnow();
-  let n = 0;
-  for (let i = 0; i < recentDeaths.length; i++) if (now - recentDeaths[i] < 12000) n++;
-  return Math.max(0.7, difficulty - Math.min(n, 3) * 0.12);
 }
 
 // ---------- Input (buffered) ----------
@@ -382,133 +241,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "arrowright" || k === "d") requestHop(HOP_X, 0, 90);
 }, { passive: false });
 window.addEventListener("keyup", (e) => { KEYS[e.key.toLowerCase()] = false; });
-canvas.addEventListener("pointerdown", () => {
-  initAudio(); resumeAudio();
-  if (state === STATE.WIN) { if (winTimer <= 0) nextWave(); }
-  else if (state !== STATE.PLAY) newGame();
-});
-
-// ============================================================
-// Touch controls (added; desktop keyboard/mouse path untouched)
-// ============================================================
-const TOUCH = (function () {
-  // Capability detection by input type + screen size (no UA sniffing).
-  // We only activate the touch UI when the PRIMARY pointer is coarse (phone/tablet),
-  // or when a touch device has a small screen. A touch-capable *laptop* with a mouse
-  // (fine primary pointer, large screen) keeps the untouched desktop keyboard/mouse path.
-  const mq = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
-  const coarsePrimary = mq("(pointer: coarse)");
-  const hasTouchPts = (navigator.maxTouchPoints || 0) > 0 || ("ontouchstart" in window);
-  const smallScreen = Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 820;
-  const enabled = coarsePrimary || (hasTouchPts && smallScreen);
-
-  const layer  = document.getElementById("touchLayer");
-  const dpad   = document.getElementById("dpad");
-  const swHint = document.getElementById("swipeHint");
-  const ctlBtn = document.getElementById("ctlBtn");
-  const menu   = document.getElementById("schemeMenu");
-  const hint   = document.getElementById("hint");
-
-  const SCHEME_KEY = "glowhop_touch_scheme";
-  function loadScheme() { try { return localStorage.getItem(SCHEME_KEY); } catch (e) { return null; } }
-  function saveScheme(v) { try { localStorage.setItem(SCHEME_KEY, v); } catch (e) {} }
-  let scheme = loadScheme();  // 'swipe' | 'buttons' | null
-
-  function hopUp()    { requestHop(0, -STEP, 0); }
-  function hopDown()  { requestHop(0, STEP, 180); }
-  function hopLeft()  { requestHop(-HOP_X, 0, 270); }
-  function hopRight() { requestHop(HOP_X, 0, 90); }
-
-  function wakeAudio() { initAudio(); resumeAudio(); }
-
-  // Start/continue from any non-PLAY state (mirrors space/enter).
-  function startOrContinue() {
-    wakeAudio();
-    if (state === STATE.WIN) { if (winTimer <= 0) nextWave(); }
-    else if (state !== STATE.PLAY) newGame();
-  }
-
-  function openMenu()  { menu.classList.add("on"); }
-  function closeMenu() { menu.classList.remove("on"); }
-
-  function setScheme(s) { scheme = s; saveScheme(s); closeMenu(); syncUI(); }
-
-  // Keep the on-screen affordances in sync with state + chosen scheme.
-  let _lastUIKey = "";
-  function syncUI() {
-    if (!enabled) return;
-    const playing = (state === STATE.PLAY);
-    const key = scheme + "|" + playing;
-    if (key === _lastUIKey) return;   // only touch the DOM when something changed
-    _lastUIKey = key;
-    dpad.classList.toggle("on",   scheme === "buttons" && playing);
-    swHint.classList.toggle("on", scheme === "swipe"   && playing);
-  }
-
-  if (enabled) {
-    layer.classList.add("on");
-    ctlBtn.classList.add("on");
-    hint.textContent = "SWIPE or TAP to hop · tap to start";
-
-    // ---- Gesture handling on the full-screen layer (Pointer Events) ----
-    let sx = 0, sy = 0, st = 0, tracking = false;
-    const SWIPE_MIN = 24;     // px before a drag counts as a directional swipe
-    layer.addEventListener("pointerdown", (e) => {
-      wakeAudio();
-      tracking = true; sx = e.clientX; sy = e.clientY; st = performance.now();
-      if (e.cancelable) e.preventDefault();
-    }, { passive: false });
-    layer.addEventListener("pointermove", (e) => {
-      if (e.cancelable) e.preventDefault();   // block scroll/pull-to-refresh
-    }, { passive: false });
-    layer.addEventListener("pointercancel", () => { tracking = false; });
-    layer.addEventListener("pointerup", (e) => {
-      if (!tracking) return;
-      tracking = false;
-      const dx = e.clientX - sx, dy = e.clientY - sy;
-      const adx = Math.abs(dx), ady = Math.abs(dy);
-      if (state !== STATE.PLAY) { startOrContinue(); return; }
-      // Buttons scheme: ignore stray layer taps during play (D-pad drives hops).
-      if (scheme === "buttons") { if (adx < 8 && ady < 8) {/* no-op tap */} return; }
-      // Swipe scheme:
-      if (adx < SWIPE_MIN && ady < SWIPE_MIN) { hopUp(); return; }   // tap = forward
-      if (adx > ady) { dx > 0 ? hopRight() : hopLeft(); }
-      else           { dy > 0 ? hopDown()  : hopUp(); }
-    }, { passive: false });
-
-    // ---- D-pad buttons ----
-    function bindBtn(id, fn) {
-      const el = document.getElementById(id);
-      el.addEventListener("pointerdown", (e) => {
-        if (e.cancelable) e.preventDefault();
-        e.stopPropagation();          // don't let the layer also see it
-        wakeAudio(); fn();
-      }, { passive: false });
-    }
-    bindBtn("d-up", hopUp); bindBtn("d-down", hopDown);
-    bindBtn("d-left", hopLeft); bindBtn("d-right", hopRight);
-
-    // ---- Settings button reopens the chooser ----
-    ctlBtn.addEventListener("pointerdown", (e) => {
-      if (e.cancelable) e.preventDefault(); e.stopPropagation();
-      wakeAudio(); openMenu();
-    }, { passive: false });
-
-    // ---- Scheme chooser buttons ----
-    menu.querySelectorAll(".schemeOpt").forEach((b) => {
-      b.addEventListener("pointerdown", (e) => {
-        if (e.cancelable) e.preventDefault(); e.stopPropagation();
-        wakeAudio(); setScheme(b.getAttribute("data-scheme"));
-      }, { passive: false });
-    });
-
-    // First run: no saved scheme → ask. Otherwise apply silently.
-    if (!scheme) { scheme = "swipe"; openMenu(); }   // default highlighted; menu lets them confirm/change
-    syncUI();
-  }
-
-  return { enabled, syncUI };
-})();
+canvas.addEventListener("pointerdown", () => { initAudio(); resumeAudio(); if (state !== STATE.PLAY) newGame(); });
 
 // ---------- Collision ----------
 function aabb(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
@@ -518,17 +251,17 @@ function sweptHit(car, prevX, fr) {
 }
 
 // ---------- Spawning ----------
-function trySpawn(lane, list, factory, dt, diff) {
+function trySpawn(lane, list, factory, dt) {
+  const inLane = list.filter(o => Math.abs((o.y + o.h / 2) - lane.y) < 1);
+  const diff = effectiveDifficulty();
   const gap = lane.gap ? lane.gap / Math.sqrt(diff) : (170 / diff);
   let blocked = false;
-  for (let i = 0; i < list.length; i++) {
-    const o = list[i];
-    if (Math.abs((o.y + o.h / 2) - lane.y) >= 1) continue;   // not this lane
-    if (lane.dir === 1 && o.x < gap) { blocked = true; break; }
-    if (lane.dir === -1 && o.x > W - gap - o.w) { blocked = true; break; }
+  for (const o of inLane) {
+    if (lane.dir === 1 && o.x < gap) blocked = true;
+    if (lane.dir === -1 && o.x > W - gap - o.w) blocked = true;
   }
   const ratePerSec = (lane.gap ? 1.4 : 1.9) * Math.min(diff, 2.6);
-  if (!blocked && rng() < ratePerSec * dt) list.push(factory(lane));
+  if (!blocked && Math.random() < ratePerSec * dt) list.push(factory(lane));
 }
 
 // ---------- Outcomes ----------
@@ -537,7 +270,7 @@ function die(splash) {
   fx.push(makeFx(hopCenter().cx, hopCenter().cy, splash ? "#7fd4ff" : "#ff5a1f"));
   lives -= 1;
   difficulty = Math.max(0.7, difficulty - 0.15);
-  recentDeaths.push(gnow());
+  recentDeaths.push(performance.now());
   deathFlash = 0.25; shake = 0.35;
   if (lives <= 0) { best = Math.max(best, score); saveBest(best); state = STATE.DEAD; }
   else resetHopper();
@@ -552,7 +285,7 @@ function reachGoal() {
   const { pod, dist } = nearestOpenPod(cx);
   if (!pod || dist > POD_W / 2 + 6) { die(false); return; }
   pod.filled = true;
-  const elapsed = (gnow() - crossStartTime) / 1000;
+  const elapsed = (performance.now() - crossStartTime) / 1000;
   const speedBonus = Math.max(0, Math.round((6 - elapsed) * 60));
   const gained = 200 + speedBonus + Math.round(difficulty * 50);
   score += gained; crossings += 1; difficulty += 0.08;
@@ -582,14 +315,13 @@ function update(dt) {
   if (state !== STATE.PLAY) return;
 
   const diff = effectiveDifficulty();
-  curDiff = diff;
   if (hopper.jumpT > 0) {
     hopper.jumpT = Math.max(0, hopper.jumpT - dt);
     if (hopper.jumpT === 0 && bufferedHop) { const b = bufferedHop; bufferedHop = null; doHop(b.dx, b.dy, b.angle); }
   }
 
-  for (const lane of ROAD_LANES) if (crossings >= lane.unlock) trySpawn(lane, cars, makeCar, dt, diff);
-  for (const lane of STREAM_LANES) trySpawn(lane, plats, makePlatform, dt, diff);
+  for (const lane of ROAD_LANES) if (crossings >= lane.unlock) trySpawn(lane, cars, makeCar, dt);
+  for (const lane of STREAM_LANES) trySpawn(lane, plats, makePlatform, dt);
 
   const fr = hopRect();
   for (let i = cars.length - 1; i >= 0; i--) {
@@ -613,7 +345,7 @@ function update(dt) {
     if (p.x > W + 240 || p.x + p.w < -240) { plats.splice(i, 1); continue; }
     if (p.type === "skimmer") {
       p.diveTimer -= dt;
-      if (p.diveTimer <= 0) { p.submerged = !p.submerged; p.diveTimer = p.submerged ? 1.4 : (3 + rng() * 2); }
+      if (p.diveTimer <= 0) { p.submerged = !p.submerged; p.diveTimer = p.submerged ? 1.4 : (3 + Math.random() * 2); }
     }
   }
 
@@ -789,14 +521,13 @@ function drawFx() {
   ctx.globalAlpha = 1; ctx.textAlign = "left";
 }
 
-function filledPodCount() { let n = 0; for (let i = 0; i < PODS.length; i++) if (PODS[i].filled) n++; return n; }
 function drawHUD() {
   ctx.font = "bold 18px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = C.txt; ctx.textAlign = "left";
   ctx.fillText("SCORE " + score, 16, H - 48);
-  ctx.fillText("PODS " + filledPodCount() + "/" + NUM_PODS, 16, H - 24);
+  ctx.fillText("PODS " + PODS.filter(p => p.filled).length + "/" + NUM_PODS, 16, H - 24);
   ctx.textAlign = "right";
-  ctx.fillText("x" + peekDifficulty().toFixed(1), W - 16, H - 48);
+  ctx.fillText("x" + effectiveDifficulty().toFixed(1), W - 16, H - 48);
   ctx.fillStyle = "rgba(231,246,239,0.6)"; ctx.font = "13px 'Trebuchet MS', sans-serif";
   ctx.fillText("BEST " + best, W - 16, H - 26);
   for (let i = 0; i < lives; i++) {
@@ -882,16 +613,14 @@ function render(t) {
 // ---------- Loop ----------
 const DT = 1 / 120;
 let acc = 0, last = performance.now(), tSec = 0;
-function step(dt) { simMs += dt * 1000; update(dt); }   // single source of truth for advancing sim
 function frame(now) {
   let elapsed = (now - last) / 1000; last = now;
   if (elapsed > 0.25) elapsed = 0.25;
   tSec += elapsed; acc += elapsed;
   let guard = 0;
-  while (acc >= DT && guard < 600) { step(DT); acc -= DT; guard++; }
+  while (acc >= DT && guard < 600) { update(DT); acc -= DT; guard++; }
   // auto-advance from WIN after the celebration, on next space (handled in keydown) OR after timer + space
   render(tSec);
-  if (TOUCH.enabled) TOUCH.syncUI();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -902,17 +631,8 @@ window.__GLOWHOP = {
   get score(){return score}, get lives(){return lives}, get crossings(){return crossings},
   get pods(){return PODS.filter(p=>p.filled).length},
   get hopperY(){return hopper.y}, get cars(){return cars.length}, get plats(){return plats.length},
-  get hopperX(){return hopper.x}, get jumpT(){return hopper.jumpT}, get diff(){return curDiff},
-  get now(){return simMs},
   start(){ newGame(); }, hop(dx,dy,a){ requestHop(dx,dy,a); },
-  tick(dt){ step(dt); },                 // advance one fixed sim step (no rAF needed)
-  nextWave(){ if (state === STATE.WIN) nextWave(); },
-  setRng(fn){ setRng(fn); },
-  // Test-only: place the creature directly (used by the headless harness to
-  // exercise reachGoal/win/nextWave deterministically). Never called in normal play.
-  setHopperCenter(cx, cy){ hopper.x = cx - hopper.size / 2; hopper.y = cy - hopper.size / 2; hopper.jumpT = 0; hopper.ridingDir = 0; },
-  get goalY1(){ return GOAL_Y1; }, get podXs(){ return PODS.map(p => p.cx); },
-  STEP, HOP_X, HOP, DT,
+  STEP, HOP_X,
 };
 // Debug geometry probe (used only by automated playtests; harmless otherwise)
 window.__GLOWHOP_DBG = function () {
