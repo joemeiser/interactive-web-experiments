@@ -84,7 +84,7 @@
 <div class="ov" id="schemeOv">
   <h1>TOUCH CONTROLS</h1>
   <p>Pick how you'd like to move your paddle. You can change this later from the menu.</p>
-  <button id="schFollow">TOUCH-FOLLOW<span class="rec">RECOMMENDED &mdash; drag your side, paddle tracks your finger</span></button>
+  <button id="schFollow">TOUCH-FOLLOW<span class="rec">RECOMMENDED &mdash; drag your side; slide toward center to overvolt</span></button>
   <button id="schButtons">ON-SCREEN BUTTONS<span class="rec">UP / DOWN / POWER pads on each side</span></button>
 </div>
 
@@ -422,11 +422,23 @@ function update(){
 // ============================================================================
 var canvas=document.getElementById("c"),ctx=canvas.getContext("2d");
 var DPR=1,scale=1,offX=0,offY=0,cssW=GW,cssH=GH;
+function setFieldWidth(){
+  // Desktop: keep the original 800x600 (4:3) field, letterboxed — unchanged.
+  // Mobile: widen the field so its aspect matches the screen => fills edge-to-edge,
+  // no side bars, no distortion (GH stays 600, so on-screen ball speed is identical).
+  var want=(isTouch&&cssH>0)?clamp(Math.round(GH*(cssW/cssH)),800,1600):800;
+  if(want===GW)return;
+  GW=want;
+  if(game.p1){game.p1.ox=POFF;if(!game.p1.powerActive)game.p1.x=game.p1.ox;}
+  if(game.p2){game.p2.ox=GW-POFF-PW;if(!game.p2.powerActive)game.p2.x=game.p2.ox;}
+  if(game.ball)game.ball.x=clamp(game.ball.x,0,GW-BS);
+}
 function resize(){
   var vv=window.visualViewport;
   if(isTouch&&vv){cssW=Math.round(vv.width);cssH=Math.round(vv.height);} // mobile: exclude UI chrome
   else{cssW=window.innerWidth;cssH=window.innerHeight;}                   // desktop: original path, untouched
   DPR=Math.min(window.devicePixelRatio||1,2);
+  setFieldWidth();                       // mobile: fill screen (must precede scale calc)
   canvas.width=Math.floor(cssW*DPR);canvas.height=Math.floor(cssH*DPR);
   canvas.style.width=cssW+"px";canvas.style.height=cssH+"px";
   scale=Math.min(cssW/GW,cssH/GH);
@@ -453,6 +465,24 @@ function drawField(){
   ctx.globalAlpha=0.5;
   ctx.beginPath();ctx.moveTo(GW/2,0);ctx.lineTo(GW/2,GH);ctx.stroke();
   ctx.globalAlpha=1;ctx.setLineDash([]);
+}
+// touch-follow discoverability: when a human paddle is charged, glow the centre-
+// ward zone the player should slide their finger into to trigger the power shot.
+function drawPowerHint(){
+  if(game.state!=="playing"||!isTouch||touchScheme!=="follow")return;
+  var pulse=0.45+0.55*Math.abs(Math.sin(performance.now()/260));
+  function band(fromCentreFrac,leftSide,avail){
+    if(!avail)return;
+    var cx=GW/2, edge=GW*fromCentreFrac;        // gradient fades from centre outward
+    var x0=leftSide?edge:cx, x1=leftSide?cx:edge;
+    var g=ctx.createLinearGradient(x0,0,x1,0);
+    var a=(0.05+0.12*pulse).toFixed(3);
+    if(leftSide){g.addColorStop(0,"rgba(255,150,0,0)");g.addColorStop(1,"rgba(255,150,0,"+a+")");}
+    else{g.addColorStop(0,"rgba(255,150,0,"+a+")");g.addColorStop(1,"rgba(255,150,0,0)");}
+    ctx.fillStyle=g;ctx.fillRect(Math.min(x0,x1),0,Math.abs(x1-x0),GH);
+  }
+  band(POWER_PUSH,true,!!(game.p1&&game.p1.powerAvail));
+  band(1-POWER_PUSH,false,!!(game.mode==="2p"&&game.p2&&game.p2.powerAvail));
 }
 function drawPaddle(p,alpha){
   var x=lerp(p.px,p.x,alpha),y=lerp(p.py,p.y,alpha);
@@ -581,7 +611,7 @@ function drawMenu(){
   ctx.fillStyle="#666";ctx.font="15px monospace";
   if(isTouch){
     ctx.fillText("Tap ONE PLAYER or TWO PLAYERS to begin",GW/2,498);
-    ctx.fillStyle="#557";ctx.fillText("drag your side to move \u2022 hold POWER to overvolt",GW/2,524);
+    ctx.fillStyle="#557";ctx.fillText("drag your side to move \u2022 slide toward center to overvolt",GW/2,524);
   }else{
     ctx.fillText("P1: W / S move \u2014 D power      P2: \u2191 / \u2193 move \u2014 \u2190 power",GW/2,498);
     ctx.fillText("P pause \u2022 M mute \u2022 ESC menu      \u2022      best on desktop / keyboard",GW/2,524);
@@ -622,6 +652,7 @@ function render(alpha){
   ctx.beginPath();ctx.rect(0,0,GW,GH);ctx.clip();   // keep glow/shake inside field
   if(game.state==="menu"){drawMenu();ctx.restore();return;}
   drawField();
+  drawPowerHint();
   for(var i=0;i<game.ripples.length;i++)game.ripples[i].draw(ctx);
   drawPaddle(game.p1,alpha);drawPaddle(game.p2,alpha);
   if(game.state!=="gameover")drawBall(game.ball,alpha);
@@ -760,17 +791,25 @@ function applyScheme(s){
 }
 
 // drag zone -> absolute follow target (per side, capped in updateHuman)
-function bindDrag(el,side){
-  function set(e){side.targetY=clamp((e.clientY-offY)/scale,BS,GH-BS);}
+// POWER is triggered by sliding the finger toward the centre line (no button).
+var POWER_PUSH=0.38;     // left charges when finger passes 38% of width toward centre
+function bindDrag(el,side,isLeft){
+  function set(e){
+    side.targetY=clamp((e.clientY-offY)/scale,BS,GH-BS);
+    if(touchScheme==="follow"){
+      var fx=e.clientX;
+      side.power=isLeft?(fx>cssW*POWER_PUSH):(fx<cssW*(1-POWER_PUSH));
+    }
+  }
   el.addEventListener("pointerdown",function(e){
     if(game.state!=="playing")return;          // taps in menu/pause go to canvas, not here
     startGesture();el.setPointerCapture(e.pointerId);side.dragId=e.pointerId;set(e);e.preventDefault();
   },{passive:false});
   el.addEventListener("pointermove",function(e){if(side.dragId===e.pointerId)set(e);},{passive:false});
-  function end(e){if(side.dragId===e.pointerId){side.dragId=null;side.targetY=null;}}
+  function end(e){if(side.dragId===e.pointerId){side.dragId=null;side.targetY=null;side.power=false;}}
   el.addEventListener("pointerup",end);el.addEventListener("pointercancel",end);
 }
-bindDrag(TEL.dragL,touchL);bindDrag(TEL.dragR,touchR);
+bindDrag(TEL.dragL,touchL,true);bindDrag(TEL.dragR,touchR,false);
 
 // hold buttons (up/down/power)
 function bindHold(el,obj,prop){
@@ -824,16 +863,17 @@ function updateMobileUI(){
   if(key!==_uiKey){
     _uiKey=key;
     var dispCtl=playing?"":"none";
-    // drag zones + power always for active human side(s); d-pad only in buttons scheme
+    // follow mode: drag zones move the paddle; POWER is the finger-toward-centre gesture
+    // (no on-screen power button). buttons mode: d-pad + a POWER button per side.
     TEL.dragL.style.display=(playing&&touchScheme==="follow")?"":"none";
     TEL.dragR.style.display=(playing&&touchScheme==="follow"&&game.mode==="2p")?"":"none";
-    TEL.powL.style.display=dispCtl;
-    TEL.powR.style.display=(playing&&game.mode==="2p")?"":"none";
+    var showPow=(playing&&touchScheme==="buttons");
+    TEL.powL.style.display=showPow?"":"none";
+    TEL.powR.style.display=(showPow&&game.mode==="2p")?"":"none";
     var dpad=(playing&&touchScheme==="buttons");
     TEL.upL.style.display=dpad?"":"none";TEL.dnL.style.display=dpad?"":"none";
     TEL.upR.style.display=(dpad&&game.mode==="2p")?"":"none";
     TEL.dnR.style.display=(dpad&&game.mode==="2p")?"":"none";
-    // in 1p mode the right-side drag also lets a coach nudge? No — keep right inert.
   }
 }
 

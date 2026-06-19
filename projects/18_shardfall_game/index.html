@@ -9,9 +9,12 @@
     font-family:"Trebuchet MS",Verdana,system-ui,sans-serif;
     -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
     -webkit-touch-callout:none;}
-  /* dynamic viewport: svh is the *stable* small viewport (won't reflow as
-     mobile browser chrome slides in/out), with vh as a legacy fallback */
-  #wrap{position:fixed;inset:0;height:100vh;height:100svh;
+  :root{ --app-h:100svh; }   /* JS overwrites with the real measured visible height */
+  /* dynamic viewport: a JS-measured pixel height is the most reliable across iOS
+     versions (svh/dvh mis-size on first paint on some); svh/vh are fallbacks.
+     #wrap is also pinned with inset:0 so even if the var chain fails it fills
+     the viewport (fixed + top/bottom:0). */
+  #wrap{position:fixed;inset:0;height:100vh;height:100svh;height:var(--app-h,100svh);
     box-sizing:border-box;display:flex;align-items:center;justify-content:center;
     padding:env(safe-area-inset-top) env(safe-area-inset-right)
             env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -110,7 +113,10 @@
 // ============================================================
 // CONSTANTS
 // ============================================================
-const W = 800, H = 600;
+const W = 800;
+let   H = 600;                   // logical height — adaptive on mobile to fill the screen
+const BASE_H = 600;              // desktop/reference height (gameplay tuned around this)
+const VH_MIN = 600, VH_MAX = 1800;  // clamp range for the adaptive portrait playfield
 const STEP = 1000/60;            // fixed logical timestep (ms)
 const PLAYER_SPEED = 7;
 const E_BULLET_H = 15, P_BULLET_H = 12;
@@ -146,9 +152,14 @@ function resize(){
   let availW, availH;
   if(coarse || small){
     availW = Math.max(1, stageEl.clientWidth  || window.innerWidth  || W);
-    availH = Math.max(1, stageEl.clientHeight || window.innerHeight || H);
+    availH = Math.max(1, stageEl.clientHeight || window.innerHeight || BASE_H);
+    // Make the playfield match the screen's shape so it FILLS instead of
+    // letterboxing. Width stays fixed (gameplay unchanged horizontally); the
+    // height grows for tall/portrait screens — natural for a vertical shooter.
+    H = Math.max(VH_MIN, Math.min(VH_MAX, Math.round(W * availH / availW)));
   } else {
     availW = window.innerWidth; availH = window.innerHeight;   // original desktop path, untouched
+    H = BASE_H;                                                // desktop is always 800x600
   }
   const scale = Math.min(availW / W, availH / H);
   view.scale = scale; view.dpr = dpr;
@@ -160,11 +171,28 @@ function resize(){
   // cache canvas position for touch->logical mapping (only needed on touch layouts)
   if(coarse || small){ const r = canvas.getBoundingClientRect(); view.offX = r.left; view.offY = r.top; }
 }
-window.addEventListener('resize', resize);
+// Lock the layout to the *measured* visible height. iOS Safari reports a wrong
+// or transitional viewport during initial parse/paint, and a plain first load
+// often fires no resize/orientation event afterward — so the canvas could launch
+// mis-sized and never correct. We set --app-h from the real height and re-fit on
+// every settle hook plus a couple of delayed retries.
+function fitViewport(){
+  const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 0;
+  if(h) document.documentElement.style.setProperty('--app-h', h + 'px');
+  resize();
+}
+window.addEventListener('load', fitViewport);
+window.addEventListener('pageshow', fitViewport);        // back/forward cache restore
+window.addEventListener('resize', fitViewport);
 // orientation/chrome changes report stale sizes for a beat on iOS — settle then re-measure
-window.addEventListener('orientationchange', ()=>{ resize(); setTimeout(resize,120); setTimeout(resize,350); });
-if(window.visualViewport) window.visualViewport.addEventListener('resize', resize);
-resize();
+window.addEventListener('orientationchange', ()=>{ fitViewport(); setTimeout(fitViewport,120); setTimeout(fitViewport,350); });
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', fitViewport);
+  window.visualViewport.addEventListener('scroll', fitViewport);
+}
+fitViewport();
+requestAnimationFrame(fitViewport);                      // after first layout pass
+setTimeout(fitViewport, 120); setTimeout(fitViewport, 400);  // after iOS viewport settles
 
 // ============================================================
 // AUDIO ENGINE (Web Audio — procedural, no files)
@@ -553,12 +581,12 @@ function newGame(demo){
 }
 
 // background stars (persist across games) — three parallax depths
-const starsBg = Array.from({length:90}, ()=>({x:rand(0,W),y:rand(0,H)}));
-const starsFg = Array.from({length:50}, ()=>({x:rand(0,W),y:rand(0,H)}));
-const starsFar= Array.from({length:60}, ()=>({x:rand(0,W),y:rand(0,H)}));
+const starsBg = Array.from({length:90}, ()=>({x:rand(0,W),y:rand(0,VH_MAX)}));
+const starsFg = Array.from({length:50}, ()=>({x:rand(0,W),y:rand(0,VH_MAX)}));
+const starsFar= Array.from({length:60}, ()=>({x:rand(0,W),y:rand(0,VH_MAX)}));
 // drifting nebula blobs give the empty mid-field some depth
 const nebula = Array.from({length:4}, ()=>({
-  x:rand(0,W), y:rand(0,H), r:rand(160,300),
+  x:rand(0,W), y:rand(0,VH_MAX), r:rand(160,300),
   hue: pick([195,210,265,285]), drift: rand(0.03,0.08)
 }));
 
@@ -1153,6 +1181,8 @@ function drawTitle(){
   ctx.fillStyle='#05060a'; ctx.fillRect(0,0,W,H);
   drawAtmosphere(null);
   drawStars();
+  // keep the title block vertically centered on tall (mobile) playfields
+  ctx.save(); ctx.translate(0, (H-BASE_H)/2);
   // formation flourish in the new vector style
   const t=titleAnim;
   ctx.save();
@@ -1183,6 +1213,7 @@ function drawTitle(){
   text('\u2190 \u2192  or  A / D   move        SPACE   fire', W/2, 472, 16, COL.mid, 'center');
   text('P pause     M mute     D watch demo', W/2, 498, 16, COL.mid, 'center');
   text('Hold the line. Clear a wave to escalate; a Monolith looms every 5th. Chain kills, don\u2019t get hit.', W/2, 540, 14, COL.dim, 'center');
+  ctx.restore();
 }
 
 function drawPauseOverlay(){
@@ -1359,6 +1390,7 @@ function handleKeyDown(code){
 let lastTime = performance.now();
 let acc = 0;
 function frame(now){
+  if(G && G.player) G.player.y = H - 70;   // keep ship at the bottom for the current (adaptive) H
   let dt = now - lastTime; lastTime = now;
   if(dt > 250) dt = 250;               // avoid spiral-of-death after tab switch
   acc += dt;
