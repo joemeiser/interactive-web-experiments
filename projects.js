@@ -20,4 +20,5 @@ const PROJECTS = [
   { folder: "18_shardfall_game", title: "Shardfall Game", thumb: "thumbnail.jpg" },
   { folder: "19_glowhop_game", title: "Glowhop Game", thumb: "glowhop_thumbnail.jpg" },
   { folder: "20_over_volt_game", title: "Over Volt Game", thumb: "thumbnail.jpg" },
+  { folder: "21_spelling_quest", title: "Spelling Quest", thumb: "thumbnail.jpg" },
 ];
