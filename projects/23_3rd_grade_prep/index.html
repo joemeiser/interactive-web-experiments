@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Blockrise — Summer Build</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Baloo+2:wght@500;600;700;800&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --night:#26314a; --night2:#141a28; --cave:#1d2333;
+  --ink:#1c2433; --ink-soft:#586074; --line:#d9dccf;
+  --paper:#fbfbf5; --paper2:#eef0e6;
+  --grass:#5fae3a; --grass-d:#3f8a22; --dirt:#7a5733; --dirt-d:#5d4126;
+  --stone:#8d95a1; --stone-d:#5d6470; --cobble:#6c7482;
+  --gold:#ffc23c; --gold-d:#d99412;
+  --diamond:#34d4e6; --diamond-d:#1d9fb0;
+  --redstone:#ff6a3d; --redstone-d:#e0431f; --redstone-soft:#ffe2d8;
+  --lore:#36b8c4; --lore-d:#1d8d98; --lore-soft:#d6f3f5;
+  --emerald:#36c46b; --emerald-d:#1f9a4e; --emerald-soft:#dbf4e4;
+  --tnt:#e5433a; --tnt-soft:#ffe0dd;
+  --warn:#f0a826; --warn-soft:#fdeecb;
+  --shadow:0 12px 30px rgba(10,14,24,.45);
+  --shadow-sm:0 5px 0 rgba(10,14,24,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:"Nunito",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--ink);
+  min-height:100dvh;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, #34406180 0%, transparent 60%),
+    linear-gradient(180deg,var(--night) 0%,var(--cave) 55%,var(--night2) 100%) fixed;
+  -webkit-text-size-adjust:100%;
+}
+h1,h2,h3{font-family:"Baloo 2",system-ui,sans-serif;font-weight:800;letter-spacing:.2px;margin:0}
+.pixel{font-family:"Press Start 2P",system-ui,monospace;line-height:1.45;letter-spacing:.5px}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+.wrap{max-width:720px;margin:0 auto;padding:16px 16px 48px;min-height:100dvh;display:flex;flex-direction:column}
+
+/* ---------- brand ---------- */
+.brand{display:flex;align-items:center;gap:12px;padding:4px 2px 14px}
+.brand .cube{width:40px;height:40px;flex:0 0 auto;filter:drop-shadow(0 4px 0 rgba(0,0,0,.3))}
+.brand .name{font-family:"Press Start 2P";font-size:.98rem;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.45)}
+.brand .name .ri{color:var(--diamond)}
+.brand .tag{margin-left:auto;font-family:"Baloo 2";font-weight:700;font-size:.74rem;color:#dce6ff;background:#ffffff22;border:2px solid #ffffff2e;padding:5px 11px;border-radius:8px}
+.brand .mute{margin-left:8px;font-size:1.1rem;background:#ffffff1c;border:2px solid #ffffff2e;width:40px;height:38px;border-radius:8px;color:#fff;display:grid;place-items:center}
+.brand .mute:hover{background:#ffffff30}
+
+/* ---------- cards ---------- */
+.card{background:var(--paper);border-radius:14px;box-shadow:var(--shadow);padding:22px 20px;border:3px solid #ffffff;position:relative}
+.screen{flex:1;display:flex;flex-direction:column;gap:16px}
+.hidden{display:none !important}
+
+.hero h1{font-size:1.9rem;line-height:1.05;margin-bottom:4px;color:var(--ink)}
+.hero p{margin:0;color:var(--ink-soft);font-weight:700;font-size:1.0rem}
+.block-label{font-family:"Baloo 2";font-weight:800;font-size:.8rem;text-transform:uppercase;letter-spacing:1.3px;color:var(--ink-soft);margin:0 2px 10px;display:flex;align-items:center;gap:8px}
+.block-label::before{content:"";width:11px;height:11px;background:var(--emerald);box-shadow:2px 2px 0 var(--emerald-d)}
+
+.choices{display:grid;gap:11px}
+.subj-grid{grid-template-columns:repeat(3,1fr)}
+.opt{position:relative;text-align:left;background:var(--paper2);border:3px solid var(--line);border-bottom-width:6px;border-radius:10px;padding:14px 14px;transition:transform .1s ease,border-color .1s ease;display:flex;flex-direction:column;gap:3px}
+.opt:hover{transform:translateY(-2px)}
+.opt:active{transform:translateY(1px)}
+.opt:focus-visible{outline:3px solid var(--emerald);outline-offset:2px}
+.opt .ic{font-size:1.5rem;line-height:1}
+.opt .t{font-family:"Baloo 2";font-weight:800;font-size:1.05rem}
+.opt .d{font-size:.8rem;color:var(--ink-soft);font-weight:700;line-height:1.25}
+.opt[aria-pressed="true"]{border-color:var(--emerald);background:#fff;box-shadow:0 0 0 3px var(--emerald-soft)}
+.opt[aria-pressed="true"]::after{content:"✓";position:absolute;top:8px;right:11px;font-family:"Baloo 2";font-weight:800;color:var(--emerald-d)}
+.opt.math[aria-pressed="true"]{border-color:var(--redstone);box-shadow:0 0 0 3px var(--redstone-soft)}
+.opt.math[aria-pressed="true"]::after{color:var(--redstone-d)}
+.opt.ela[aria-pressed="true"]{border-color:var(--lore);box-shadow:0 0 0 3px var(--lore-soft)}
+.opt.ela[aria-pressed="true"]::after{color:var(--lore-d)}
+.lvl .tier{display:inline-block;font-family:"Baloo 2";font-size:.7rem;font-weight:800;padding:3px 9px;border-radius:6px;margin-bottom:3px;text-transform:uppercase;letter-spacing:.6px}
+.tier.t1{background:var(--emerald-soft);color:var(--emerald-d)}
+.tier.t2{background:var(--warn-soft);color:#b56b00}
+.tier.t3{background:#e6dcff;color:#5b3fc4}
+
+.start{margin-top:4px;width:100%;background:var(--emerald);border-bottom:6px solid var(--emerald-d);color:#fff;font-family:"Baloo 2";font-weight:800;font-size:1.2rem;padding:15px;border-radius:10px;text-shadow:0 2px 0 rgba(0,0,0,.18);transition:transform .1s ease,filter .1s ease}
+.start:hover{filter:brightness(1.05)}
+.start:active{transform:translateY(2px);border-bottom-width:3px}
+.start:disabled{background:#b9c0b2;border-bottom-color:#9aa295;cursor:not-allowed;filter:none;text-shadow:none}
+.fineprint{text-align:center;color:#c9d4ee;font-size:.82rem;font-weight:700;margin-top:2px}
+
+/* ---------- play / build ---------- */
+.world{position:relative;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);border:3px solid #ffffff14}
+.world svg{display:block;width:100%;height:170px}
+.hud{display:flex;align-items:center;gap:9px;margin:2px 0}
+.hud .back{font-family:"Baloo 2";font-weight:800;font-size:.9rem;color:#22304d;background:#ffffffd8;border-bottom:4px solid #c7ccbf;padding:8px 13px;border-radius:9px}
+.hud .back:active{transform:translateY(1px);border-bottom-width:2px}
+.hud .meta{margin-left:auto;display:flex;gap:7px;align-items:center}
+.pill{font-family:"Baloo 2";font-weight:800;font-size:.82rem;padding:7px 12px;border-radius:9px;background:#ffffffea;display:flex;align-items:center;gap:6px;border-bottom:4px solid #00000018}
+.pill.subj-math{color:var(--redstone-d)} .pill.subj-ela{color:var(--lore-d)}
+.pill .gem{color:var(--diamond-d)}
+
+.qcard{background:var(--paper);border-radius:14px;box-shadow:var(--shadow);border:3px solid #fff;padding:20px 18px;display:flex;flex-direction:column;gap:16px}
+.skilltag{font-family:"Baloo 2";font-weight:800;font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#fff;padding:5px 11px;border-radius:7px;align-self:flex-start;box-shadow:0 3px 0 #00000026}
+.skilltag.math{background:var(--redstone)} .skilltag.ela{background:var(--lore)}
+.prompt{font-size:1.28rem;font-weight:800;line-height:1.38}
+.prompt .passage{font-size:1rem;font-weight:700;color:var(--ink);background:var(--paper2);border-left:5px solid var(--emerald);padding:12px 14px;border-radius:8px;margin-bottom:13px;line-height:1.5}
+.prompt .passage .ptitle{font-family:"Baloo 2";font-weight:800;display:block;margin-bottom:4px}
+.prompt .q{font-size:1.18rem}
+.eq{font-family:"Baloo 2";font-weight:800}
+.row-blocks{font-size:1.5rem;letter-spacing:2px;display:block;margin:6px 0}
+.nl{display:block;margin:8px 0 2px}
+.under{box-shadow:inset 0 -6px 0 var(--gold)}
+
+.frac{display:inline-flex;flex-direction:column;text-align:center;vertical-align:middle;line-height:1;margin:0 3px;font-family:"Baloo 2";font-weight:800}
+.frac .n{border-bottom:3px solid currentColor;padding:0 6px 2px}
+.frac .dd{padding:2px 6px 0}
+
+.answers{display:grid;gap:10px}
+.answers.mc{grid-template-columns:1fr}
+.answers.cmp{grid-template-columns:repeat(3,1fr)}
+.choice{text-align:left;font-size:1.1rem;font-weight:800;color:var(--ink);background:var(--paper2);border:3px solid var(--line);border-bottom-width:6px;border-radius:10px;padding:13px 15px;transition:transform .08s ease,border-color .08s ease;display:flex;align-items:center;gap:11px}
+.choice .key{font-family:"Baloo 2";font-weight:800;width:26px;height:26px;flex:0 0 auto;border-radius:6px;background:#fff;color:var(--ink-soft);display:grid;place-items:center;font-size:.9rem;box-shadow:inset 0 0 0 2px var(--line)}
+.answers.cmp .choice{justify-content:center;font-size:1.7rem;padding:16px 0}
+.answers.cmp .choice .key{display:none}
+.choice:hover:not(:disabled){transform:translateY(-2px);border-color:var(--gold-d)}
+.choice:active:not(:disabled){transform:translateY(1px);border-bottom-width:3px}
+.choice:focus-visible{outline:3px solid var(--gold-d);outline-offset:2px}
+.choice.pick{border-color:var(--gold-d);background:#fff;box-shadow:0 0 0 3px var(--warn-soft)}
+.choice.correct{border-color:var(--emerald);background:var(--emerald-soft);color:var(--emerald-d)}
+.choice.correct .key{background:var(--emerald);color:#fff;box-shadow:none}
+.choice.wrong{border-color:var(--tnt);background:var(--tnt-soft);color:var(--tnt)}
+.choice.wrong .key{background:var(--tnt);color:#fff;box-shadow:none}
+.choice:disabled{cursor:default}
+
+.inputrow{display:flex;gap:10px}
+.inputrow input{flex:1;font-family:"Baloo 2";font-weight:800;font-size:1.5rem;color:var(--ink);background:var(--paper2);border:3px solid var(--line);border-bottom-width:6px;border-radius:10px;padding:12px 16px;width:100%;text-align:center}
+.inputrow input:focus{outline:none;border-color:var(--gold-d);background:#fff;box-shadow:0 0 0 3px var(--warn-soft)}
+.hint{font-size:.82rem;color:var(--ink-soft);font-weight:700;text-align:center}
+.boxnum{font-family:"Baloo 2";font-weight:800;font-size:1.55rem;color:var(--ink);background:var(--paper2);border:3px solid var(--line);border-bottom-width:6px;border-radius:10px;padding:11px 10px;width:120px;text-align:center}
+.boxnum:focus{outline:none;border-color:var(--gold-d);background:#fff;box-shadow:0 0 0 3px var(--warn-soft)}
+.boxnum.wrongbox,.inputrow input.wrongbox{border-color:var(--tnt);background:var(--tnt-soft);color:var(--tnt)}
+.fracbox{display:flex;flex-direction:column;align-items:center;gap:7px;padding:6px 0}
+.fbar{width:140px;height:5px;background:var(--ink);border-radius:2px}
+.qr{display:flex;align-items:center;justify-content:center;gap:14px;padding:2px 0}
+.qr .rlabel{font-family:"Baloo 2";font-weight:800;font-size:1.5rem;color:var(--ink-soft)}
+
+.act{display:flex;gap:10px}
+.btn{flex:1;font-family:"Baloo 2";font-weight:800;font-size:1.12rem;padding:14px;border-radius:10px;transition:transform .08s ease,filter .08s ease}
+.btn:active{transform:translateY(2px)}
+.btn-primary{background:var(--gold);border-bottom:6px solid var(--gold-d);color:#5a3d00;text-shadow:0 1px 0 #ffffff66}
+.btn-primary:hover{filter:brightness(1.04)}
+.btn-primary:active{border-bottom-width:3px}
+.btn-primary:disabled{background:#cfd2c6;border-bottom-color:#b3b6aa;color:#7b7e72;cursor:not-allowed;filter:none;text-shadow:none}
+.btn-ghost{background:#fff;border-bottom:6px solid #cfd3c6;color:var(--ink-soft)}
+.btn-ghost:active{border-bottom-width:3px}
+
+.fb{border-radius:10px;padding:14px 16px;font-weight:800;font-size:1.0rem;line-height:1.45;display:none;gap:10px;align-items:flex-start}
+.fb.show{display:flex;animation:pop .22s ease}
+.fb .fic{font-size:1.3rem;line-height:1.1}
+.fb.ok{background:var(--emerald-soft);color:var(--emerald-d)}
+.fb.no{background:var(--warn-soft);color:#8a5a00}
+.fb .ex{display:block;font-weight:700;color:var(--ink);margin-top:3px;font-size:.95rem}
+@keyframes pop{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+
+.cele{text-align:center;padding:26px 18px}
+.cele .big{font-size:3rem;line-height:1}
+.cele h2{font-family:"Press Start 2P";font-size:1.15rem;margin:14px 0 8px;color:var(--ink)}
+.cele p{color:var(--ink-soft);font-weight:800;margin:0 0 18px}
+.cele .row{display:flex;gap:10px}
+
+.confetti{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:60}
+.confetti i{position:absolute;top:-16px;width:14px;height:14px;box-shadow:inset 0 3px 0 #ffffff55, inset 0 -3px 0 #00000033;animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(106vh) rotate(420deg)}}
+
+@keyframes popk{0%{transform:scale(1)}40%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes shakek{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+.qcard.pop{animation:popk .34s ease}
+.qcard.shake{animation:shakek .42s ease}
+
+@media (max-width:480px){
+  .subj-grid{grid-template-columns:1fr}
+  .prompt{font-size:1.18rem}
+  .hero h1{font-size:1.6rem}
+  .world svg{height:150px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+  .confetti{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <svg class="cube" viewBox="0 0 40 40" aria-hidden="true">
+      <polygon points="20,2 36,11 20,20 4,11" fill="#5fae3a"/>
+      <polygon points="4,11 20,20 20,38 4,29" fill="#7a5733"/>
+      <polygon points="36,11 20,20 20,38 36,29" fill="#5d4126"/>
+    </svg>
+    <div class="name pixel">BLOCK<span class="ri">RISE</span></div>
+    <button class="mute" id="muteBtn" aria-label="Toggle sound" aria-pressed="false">🔊</button>
+    <div class="tag">Summer Build</div>
+  </div>
+
+  <!-- ============ HOME ============ -->
+  <main id="home" class="screen">
+    <div class="card hero">
+      <h1>Stack up your skills. 🧱</h1>
+      <p>Pick what to build today. Switch any time.</p>
+    </div>
+
+    <div class="card">
+      <div class="block-label">Choose a subject</div>
+      <div class="choices subj-grid" id="subjGrid">
+        <button class="opt math" data-subj="math" aria-pressed="false">
+          <span class="ic">⛏️</span><span class="t">Math</span>
+          <span class="d">Mine the numbers</span>
+        </button>
+        <button class="opt ela" data-subj="ela" aria-pressed="false">
+          <span class="ic">📖</span><span class="t">Reading</span>
+          <span class="d">Words &amp; lore</span>
+        </button>
+        <button class="opt" data-subj="mixed" aria-pressed="false">
+          <span class="ic">🌍</span><span class="t">Survival</span>
+          <span class="d">A bit of both</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="block-label">Choose a challenge</div>
+      <div class="choices" id="lvlGrid">
+        <button class="opt lvl" data-lvl="apprentice" aria-pressed="false">
+          <span class="tier t1">Easy mode</span>
+          <span class="t">Apprentice</span>
+          <span class="d">Solid 3rd-grade warm-up. Find your groove.</span>
+        </button>
+        <button class="opt lvl" data-lvl="builder" aria-pressed="false">
+          <span class="tier t2">Normal</span>
+          <span class="t">Builder</span>
+          <span class="d">End-of-3rd into early 4th. Just right.</span>
+        </button>
+        <button class="opt lvl" data-lvl="master" aria-pressed="false">
+          <span class="tier t3">Hard</span>
+          <span class="t">Master</span>
+          <span class="d">4th-grade tools &amp; brain-bender puzzles.</span>
+        </button>
+      </div>
+    </div>
+
+    <button id="startBtn" class="start" disabled>Pick a subject &amp; challenge ↑</button>
+    <p class="fineprint">Place 10 blocks to finish your build. 🏰</p>
+  </main>
+
+  <!-- ============ PLAY ============ -->
+  <main id="play" class="screen hidden">
+    <div class="world" id="world"></div>
+    <div class="hud">
+      <button class="back" id="backBtn">← Menu</button>
+      <div class="meta">
+        <span class="pill" id="subjPill"></span>
+        <span class="pill"><span class="gem">💎</span><span id="scorePill">0</span></span>
+      </div>
+    </div>
+    <div class="qcard" id="qcard"><!-- filled by JS --></div>
+  </main>
+</div>
+
+<div class="confetti" id="confetti" aria-hidden="true"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Blockrise — standalone Grade-3 summer practice. No build step, no deps.
+   Content = parameterized generators. d = difficulty 1..3
+   (Apprentice / Builder / Master).  b = boost 0..1 (within-band adaptivity).
+   minD on a generator = lowest difficulty it may appear at (gates G4 previews).
+   ========================================================================= */
+
+/* ---------- tiny helpers ---------- */
+const R = (min,max)=>Math.floor(Math.random()*(max-min+1))+min;
+const pick = a=>a[Math.floor(Math.random()*a.length)];
+const shuffle = a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+const gcd=(a,b)=>{a=Math.abs(a);b=Math.abs(b);while(b){[a,b]=[b,a%b];}return a||1;};
+function reduce(n,d){const g=gcd(n,d);return [n/g,d/g];}
+function frac(n,d){return `<span class="frac"><span class="n">${n}</span><span class="dd">${d}</span></span>`;}
+function lcm(a,b){return a/gcd(a,b)*b;}
+function ordToCmp(x,y){return x>y?'>':x<y?'<':'=';}
+const band=(b,lo,hi)=>Math.round(lo+(hi-lo)*b);
+const clamp01=x=>Math.max(0,Math.min(1,x));
+function fmtTime(h,m){return `${h}:${String(m).padStart(2,'0')}`;}
+// build an mc problem with deduped, distinct choices (correct always present)
+function MC(correct, distractors){
+  const c=String(correct); const opts=[];
+  for(const d of distractors){ const s=String(d);
+    if(s!==c && s!=='' && s!=='undefined' && s!=='null' && !opts.includes(s)) opts.push(s); }
+  const all=shuffle([c, ...opts.slice(0,3)]);
+  return {type:'mc', choices:all, answer:all.indexOf(c)};
+}
+// a row of colored square emoji (for fraction-of-a-set & graphs)
+function squares(total, filled, onCh, offCh){
+  let s=''; for(let i=0;i<total;i++) s += (i<filled?onCh:offCh); return s;
+}
+
+/* =========================================================================
+   READING PASSAGES — all original, grades 2-3 complexity, 3-5 sentences.
+   lvl gates which difficulty can see them. Includes a fable with a moral.
+   ========================================================================= */
+const READING = [
+{title:'The Block Tower', lvl:1,
+ text:`Mateo wanted to build the tallest tower on the rug. He stacked the blocks fast, and the tower wobbled and fell. So he tried again, slower, pressing each block down flat. This time the tower stood up tall, almost to his chin.`,
+ qs:[
+  {q:'What happened the first time Mateo built fast?',a:'The tower fell down',choices:['The tower fell down','The tower stood tall','He ran out of blocks','His friend helped'],ex:'Building fast made the tower wobble and fall.'},
+  {q:'What is the lesson of this story?',a:'Going slower and carefully can work better',choices:['Going slower and carefully can work better','Towers are boring','Blocks are too hard','Never try again'],ex:'He succeeded when he slowed down and pressed each block flat.'},
+  {q:'How did Mateo most likely feel at the end?',a:'Proud',choices:['Proud','Angry','Scared','Bored'],ex:'His tower stood tall after he kept trying, so he felt proud.'},
+ ]},
+{title:'The Ant and the Grasshopper', lvl:2,
+ text:`All summer the grasshopper sang while the ant carried seeds to her nest. "Come play!" said the grasshopper. "I am saving food for winter," said the ant. When the cold winds came, the grasshopper was hungry and the ant was warm and full. The grasshopper wished he had worked while there was time.`,
+ qs:[
+  {q:'What did the ant do all summer?',a:'Carried seeds to store food',choices:['Carried seeds to store food','Sang songs','Slept in the sun','Played games'],ex:'The ant carried seeds to her nest to save for winter.'},
+  {q:'What is the moral of this fable?',a:'Plan ahead and the hard work pays off later',choices:['Plan ahead and the hard work pays off later','Singing is bad','Winter never comes','Ants cannot sing'],ex:'The ant prepared and was fine; the grasshopper did not and went hungry.'},
+  {q:'Why was the grasshopper hungry in winter?',a:'He played instead of saving food',choices:['He played instead of saving food','He gave his food away','He moved away','He ate too fast'],ex:'He sang and played all summer instead of storing food.'},
+ ]},
+{title:'How Beavers Build', lvl:2,
+ text:`A beaver does not need a hammer to build its home. It chews down small trees with strong front teeth, then drags the branches into the stream. The beaver packs mud and sticks together until the water slows and a pond forms. Inside its cozy lodge, the beaver stays safe and dry all winter.`,
+ qs:[
+  {q:'How does a beaver cut down trees?',a:'With its strong front teeth',choices:['With its strong front teeth','With a saw','With its tail','With its paws'],ex:'The text says it chews trees with strong front teeth.'},
+  {q:'This passage is mostly meant to...',a:'explain how beavers build their homes',choices:['explain how beavers build their homes','tell a funny joke','teach you to swim','sell wood'],ex:'It gives facts about how beavers build, so it is informational.'},
+  {q:'What happens after the beaver packs mud and sticks?',a:'The water slows and a pond forms',choices:['The water slows and a pond forms','The trees grow back','The beaver flies away','The stream dries up'],ex:'Packing mud and sticks slows the water and makes a pond.'},
+ ]},
+{title:'The New Kid at Camp', lvl:1,
+ text:`On the first day of camp, Priya sat alone and stared at her shoes. A boy named Theo plopped down beside her. "Want to be team captains together?" he asked. By lunch they had named their team the Lava Foxes, and Priya was laughing so hard she forgot she had ever felt shy.`,
+ qs:[
+  {q:'How did Priya feel at the start?',a:'Shy and alone',choices:['Shy and alone','Loud and silly','Sleepy and bored','Angry and upset'],ex:'She sat alone staring at her shoes, which shows she felt shy.'},
+  {q:'What helped Priya feel better?',a:'Theo talked to her and they teamed up',choices:['Theo talked to her and they teamed up','She went home','She ate lunch','The bell rang'],ex:'Theo sat with her and invited her to be co-captains.'},
+  {q:'The words "she forgot she had ever felt shy" show that Priya...',a:'felt happy and comfortable now',choices:['felt happy and comfortable now','was still scared','wanted to leave','was very tired'],ex:'Forgetting her shyness means she felt happy and at ease.'},
+ ]},
+{title:'A Note to Future Me', lvl:3,
+ text:`Dear Future Me, today the multiplication facts felt like a wall I could not climb. My pencil pressed so hard it almost tore the page. But I kept going anyway. By the time you read this, I bet these facts feel easy — maybe even boring. Whatever wall you face next, remember: you have climbed one before. — You`,
+ qs:[
+  {q:'Who is the writer writing to?',a:'A future version of herself',choices:['A future version of herself','Her teacher','A new student','Her mom'],ex:'It begins "Dear Future Me" and is signed "You."'},
+  {q:'What is the theme (lesson) of this passage?',a:'Hard things can get easier if you keep trying',choices:['Hard things can get easier if you keep trying','Math is not important','Pencils break easily','Walls are dangerous'],ex:'She reminds herself she has overcome a hard thing before.'},
+  {q:'From what point of view is this written?',a:'First person (the writer uses "I")',choices:['First person (the writer uses "I")','Third person','From the teacher\'s view','It has no narrator'],ex:'The writer speaks as "I" and "You," which is first person.'},
+ ]},
+{title:'The Stubborn Gate', lvl:2,
+ text:`Nora pushed and pushed on the old garden gate, but it would not open. She kicked it once, then leaned her whole body against it. Nothing. Finally her little brother walked up, lifted the latch she had not seen, and the gate swung open easily. Nora laughed. "I must have loosened it for you," she said.`,
+ qs:[
+  {q:'Why would the gate not open for Nora?',a:'She had not lifted the hidden latch',choices:['She had not lifted the hidden latch','It was locked with a key','It was painted shut','Her brother was holding it'],ex:'Her brother opened it by lifting a latch she had not seen.'},
+  {q:'What does Nora\'s last line show about her?',a:'She can joke and laugh at herself',choices:['She can joke and laugh at herself','She is very angry','She gives up easily','She dislikes her brother'],ex:'Joking after her brother solved it shows good humor.'},
+  {q:'In this story, the word "stubborn" describing the gate means...',a:'hard to move or open',choices:['hard to move or open','brand new','painted blue','very small'],ex:'A stubborn gate is one that resists opening — hard to move.'},
+ ]},
+{title:'Why Leaves Change Color', lvl:3,
+ text:`Leaves look green all summer because of a coloring inside them called chlorophyll, which helps the tree make food from sunlight. The green is so strong it hides other colors that are already there. When fall comes and the days get shorter, the tree slows down and the green fades away. Only then can the hidden yellows and oranges finally show.`,
+ qs:[
+  {q:'What makes leaves look green in summer?',a:'A coloring called chlorophyll',choices:['A coloring called chlorophyll','The warm rain','The cold wind','The brown soil'],ex:'The passage names chlorophyll as the green coloring.'},
+  {q:'According to the passage, the yellow and orange colors...',a:'were hidden in the leaf the whole time',choices:['were hidden in the leaf the whole time','are painted on by the cold','come from the ground','only appear in spring'],ex:'The hidden yellows and oranges were already there.'},
+  {q:'Why do leaves change color in fall?',a:'Shorter days make the green fade',choices:['Shorter days make the green fade','The tree grows new leaves','Animals color them','The sun gets hotter'],ex:'As days shorten, the green fades and other colors show.'},
+ ]},
+{title:'The Two Climbers', lvl:3,
+ text:`Sam reached the top of the climbing wall first and crossed his arms while Jordan struggled below. When Jordan slipped, Sam almost laughed — but stopped. He remembered his own first climb and his own shaking arms. "Left foot on the blue rock," he called down. "You've got it." Jordan found the hold and pulled up, grinning. Somehow, reaching the top together felt better than winning.`,
+ qs:[
+  {q:'How does Sam change during the story?',a:'He goes from boastful to helpful',choices:['He goes from boastful to helpful','He goes from kind to mean','He stops climbing','He gets angry'],ex:'He almost laughs, then chooses to help Jordan instead.'},
+  {q:'What is the theme of this passage?',a:'Helping someone can feel better than winning',choices:['Helping someone can feel better than winning','Climbing is dangerous','Always finish first','Never ask for help'],ex:'The last line says climbing together felt better than winning.'},
+  {q:'Why did Sam decide to help Jordan?',a:'He remembered his own hard first climb',choices:['He remembered his own hard first climb','He wanted a prize','Jordan paid him','A coach told him to'],ex:'Remembering his own shaking arms made him feel for Jordan.'},
+ ]},
+];
+
+/* =========================================================================
+   MATH GENERATORS (Grade 3 centered)
+   ========================================================================= */
+const MATH = [
+
+{id:'mult', name:'Multiplication', gen(d,b){
+  let a,c;
+  if(d===1){ a=R(2,9); c=R(2,9); }                      // within 100
+  else if(d===2){ a=R(6,9); c=R(6,12); }                // harder facts / extend
+  else { a=R(12,99); c=R(2,9); }                        // G4: 2-3 digit x 1 digit
+  return {type:'input',inputKind:'int',
+    prompt:`<span class="eq">${a} × ${c} = ?</span>`,
+    answer:String(a*c),
+    explain:`${a} × ${c} = ${a*c}. Think of ${a} groups of ${c}.`};
+}},
+
+{id:'div', name:'Division', gen(d,b){
+  if(d===1){ const div=R(2,9), q=R(2,9);
+    return {type:'input',inputKind:'int',
+      prompt:`<span class="eq">${div*q} ÷ ${div} = ?</span>`, answer:String(q),
+      explain:`${div} × ${q} = ${div*q}, so ${div*q} ÷ ${div} = ${q}.`};
+  }
+  if(d===2){ const div=R(3,9), q=R(6,11);
+    return {type:'input',inputKind:'int',
+      prompt:`<span class="eq">${div*q} ÷ ${div} = ?</span>`, answer:String(q),
+      explain:`${div} × ${q} = ${div*q}, so the answer is ${q}.`};
+  }
+  // G4 preview: division WITH a remainder, two clear boxes
+  const div=R(3,8), q=R(7,12), r=R(1,div-1); const dividend=div*q+r;
+  return {type:'qr', answer:{q,r},
+    prompt:`<span class="eq">${dividend} ÷ ${div} = ?</span>`,
+    explain:`${div} × ${q} = ${div*q}. ${dividend} − ${div*q} = ${r} left over. So ${q} R ${r}.`};
+}},
+
+{id:'factfam', name:'Missing Number', gen(d,b){
+  const a=d===1?R(2,9):d===2?R(3,12):R(6,12);
+  const c=d===1?R(2,9):d===2?R(3,12):R(6,12);
+  const prod=a*c; const blank=pick(['factor','factor','product']);
+  if(blank==='product') return {type:'input',inputKind:'int',
+    prompt:`<span class="eq">${a} × ${c} = ☐</span>`, answer:String(prod),
+    explain:`${a} × ${c} = ${prod}.`};
+  return {type:'input',inputKind:'int',
+    prompt:`<span class="eq">${a} × ☐ = ${prod}</span>`, answer:String(c),
+    explain:`Think division: ${prod} ÷ ${a} = ${c}.`};
+}},
+
+{id:'equalgroups', name:'Equal Groups', gen(d,b){
+  const things=pick([['chests','diamonds'],['stacks','blocks'],['rows','torches'],['crates','apples']]);
+  if(d===1){ const g=band(b,2,6), each=band(b,2,6); 
+    return {type:'input',inputKind:'int',
+      prompt:`There are <b>${g} ${things[0]}</b> with <b>${each} ${things[1]}</b> in each.<br>How many ${things[1]} in all?`,
+      answer:String(g*each), explain:`${g} groups of ${each} = ${g} × ${each} = ${g*each}.`};
+  }
+  if(d===2){ const rows=R(3,6), cols=R(4,8);
+    return {type:'input',inputKind:'int',
+      prompt:`A wall is an array of <b>${rows} rows</b> with <b>${cols} blocks</b> in each row.<br>How many blocks total?`,
+      answer:String(rows*cols), explain:`Array: ${rows} × ${cols} = ${rows*cols} blocks.`};
+  }
+  // G4: multiplicative comparison ("times as many")
+  const base=R(3,9), times=R(2,5);
+  return {type:'input',inputKind:'int',
+    prompt:`Alex has <b>${base}</b> gold blocks. Sky has <b>${times} times as many</b>.<br>How many does Sky have?`,
+    answer:String(base*times), explain:`"${times} times as many" means ${times} × ${base} = ${base*times}.`};
+}},
+
+{id:'area', name:'Area & Perimeter', gen(d,b){
+  if(d===1){ const w=band(b,3,8),h=band(b,2,7);
+    return {type:'input',inputKind:'int',prompt:`A floor is <b>${w}</b> blocks wide and <b>${h}</b> blocks tall.<br>What is its <b>area</b>? (square blocks)`,
+      answer:String(w*h),explain:`Area = width × height = ${w} × ${h} = ${w*h}.`};
+  }
+  if(d===2){ const w=band(b,4,10),h=band(b,3,9);
+    return {type:'input',inputKind:'int',prompt:`A garden is <b>${w}</b> m wide and <b>${h}</b> m tall.<br>What is its <b>perimeter</b>? (m)`,
+      answer:String(2*(w+h)),explain:`Perimeter = 2 × (${w} + ${h}) = 2 × ${w+h} = ${2*(w+h)} m.`};
+  }
+  // G4-ish: composite (L-shaped) area = big rectangle minus a cut-out
+  const big=R(6,10), cw=R(2,4), ch=R(2,4);
+  return {type:'input',inputKind:'int',
+    prompt:`A <b>${big} × ${big}</b> platform has a <b>${cw} × ${ch}</b> hole cut out.<br>What is the <b>area left</b>? (square blocks)`,
+    answer:String(big*big-cw*ch),
+    explain:`Whole: ${big}×${big}=${big*big}. Hole: ${cw}×${ch}=${cw*ch}. Left: ${big*big} − ${cw*ch} = ${big*big-cw*ch}.`};
+}},
+
+{id:'missingside', name:'Missing Side', gen(d,b){
+  const w=d===1?R(2,8):d===2?R(3,11):R(4,12); const a=d===1?R(2,8):d===2?R(3,11):R(4,12);
+  return {type:'input',inputKind:'int',
+    prompt:`A rectangle has an <b>area of ${w*a}</b> square m. One side is <b>${w}</b> m.<br>How long is the other side?`,
+    answer:String(a), explain:`Area ÷ known side = missing side: ${w*a} ÷ ${w} = ${a} m.`};
+}},
+
+{id:'placeval', name:'Place Value', gen(d,b){
+  const len = d===1?3 : d===2?R(3,4) : R(4,5);   // within 1000, then G4 preview to 10,000+
+  let digits=[]; for(let i=0;i<len;i++) digits.push(R(i===0?1:0,9));
+  const num=Number(digits.join(''));
+  const pos=R(1,len); const dig=digits[len-pos]; const place=Math.pow(10,pos-1);
+  const names={1:'ones',10:'tens',100:'hundreds',1000:'thousands',10000:'ten-thousands'};
+  const val=dig*place;
+  const idx=String(num).length-pos;
+  const shown=String(num).split('').map((ch,i)=>i===idx?`<span class="under">${ch}</span>`:ch).join('');
+  return {type:'input',inputKind:'int',
+    prompt:`What is the value of the underlined digit?<br><span class="eq" style="font-size:1.6rem;letter-spacing:2px">${shown}</span>`,
+    answer:String(val),
+    explain:`The ${dig} is in the ${names[place]} place, so it is worth ${dig} × ${place} = ${val}.`};
+}},
+
+{id:'rounding', name:'Rounding', gen(d,b){
+  if(d===1){ const n=R(12,98); const ans=Math.round(n/10)*10;
+    return {type:'input',inputKind:'int',prompt:`Round <span class="eq">${n}</span> to the nearest <b>ten</b>.`,answer:String(ans),
+      explain:`The ones digit is ${n%10}. ${n%10>=5?'5 or more rounds up':'less than 5 rounds down'} → ${ans}.`};
+  }
+  if(d===2){ const n=R(120,980); const ans=Math.round(n/100)*100;
+    return {type:'input',inputKind:'int',prompt:`Round <span class="eq">${n}</span> to the nearest <b>hundred</b>.`,answer:String(ans),
+      explain:`Look at the tens digit (${Math.floor(n/10)%10}). ${Math.floor(n/10)%10>=5?'rounds up':'rounds down'} → ${ans}.`};
+  }
+  const n=R(1050,9850); const ans=Math.round(n/100)*100;
+  return {type:'input',inputKind:'int',prompt:`Round <span class="eq">${n}</span> to the nearest <b>hundred</b>.`,answer:String(ans),
+    explain:`Look at the tens digit. → ${ans}.`};
+}},
+
+{id:'patterns', name:'Number Patterns', gen(d,b){
+  if(d===1){ const s=R(1,6), step=R(2,6); const seq=[s,s+step,s+2*step,s+3*step]; const ans=s+4*step;
+    return {type:'input',inputKind:'int',prompt:`What comes next?<br><span class="eq">${seq.join(', ')}, ___</span>`,
+      answer:String(ans),explain:`The pattern adds ${step} each time → ${seq[3]} + ${step} = ${ans}.`};
+  }
+  if(d===2){ const s=R(2,5), step=R(3,7); const seq=[s,s+step,s+2*step,s+3*step]; const ans=s+4*step;
+    return {type:'input',inputKind:'int',prompt:`What comes next?<br><span class="eq">${seq.join(', ')}, ___</span>`,
+      answer:String(ans),explain:`The pattern adds ${step} each time → ${seq[3]} + ${step} = ${ans}.`};
+  }
+  // G4: multiply pattern
+  const s=pick([1,2,3]), r=pick([2,3]); const seq=[s,s*r,s*r*r,s*r*r*r]; const ans=s*r*r*r*r;
+  return {type:'input',inputKind:'int',prompt:`What comes next?<br><span class="eq">${seq.join(', ')}, ___</span>`,
+    answer:String(ans),explain:`The pattern multiplies by ${r} each time → ${seq[3]} × ${r} = ${ans}.`};
+}},
+
+{id:'wordprob', name:'Word Problem', gen(d,b){
+  const name=pick(['Alex','Sky','Max','Mia','Eli','Zoe','Leo','Ada']);
+  if(d===1){ const groups=R(3,7), each=R(3,6); const ans=groups*each;
+    return {type:'input',inputKind:'int',
+      prompt:`${name} mines <b>${groups}</b> chests with <b>${each}</b> emeralds in each.<br>How many emeralds in all?`,
+      answer:String(ans),explain:`${groups} × ${each} = ${ans}.`};
+  }
+  if(d===2){ const start=R(20,40), packs=R(3,6), per=R(3,6); const ans=start+packs*per;
+    return {type:'input',inputKind:'int',
+      prompt:`${name} has <b>${start}</b> blocks, then crafts <b>${packs}</b> stacks of <b>${per}</b> more.<br>How many blocks now?`,
+      answer:String(ans),explain:`${packs} × ${per} = ${packs*per}, plus ${start} = ${ans}.`};
+  }
+  // two-step with division
+  const friends=R(3,6), each=R(4,8), used=R(2,6); const total=friends*each+used;
+  return {type:'input',inputKind:'int',
+    prompt:`${name} has <b>${total}</b> arrows, uses <b>${used}</b>, then shares the rest equally among <b>${friends}</b> bows.<br>How many arrows per bow?`,
+    answer:String(each),explain:`${total} − ${used} = ${total-used}. ${total-used} ÷ ${friends} = ${each}.`};
+}},
+
+{id:'unitfrac', name:'Fractions of a Set', gen(d,b){
+  const den=pick([2,3,4,6,8]);
+  if(d===1){ // unit fraction shaded
+    const row=squares(den,1,'🟨','⬜');
+    return {type:'input',inputKind:'frac',
+      prompt:`What fraction of the blocks is gold?<br><span class="row-blocks">${row}</span>`,
+      answer:`1/${den}`, explain:`1 of ${den} equal parts is gold, so ${frac(1,den)}.`};
+  }
+  if(d===2){ const num=R(1,den-1); const row=squares(den,num,'🟨','⬜');
+    return {type:'input',inputKind:'frac',
+      prompt:`What fraction of the blocks is gold?<br><span class="row-blocks">${row}</span>`,
+      answer:`${num}/${den}`, explain:`${num} of ${den} equal parts are gold, so ${frac(num,den)}.`};
+  }
+  // G3 equivalence: missing numerator
+  const m=R(2,3); const num=R(1,den-1);
+  return {type:'input',inputKind:'int',
+    prompt:`Fill in the missing number:<br>${frac(num,den)} <span class="eq">=</span> ${frac('☐',den*m)}`,
+    answer:String(num*m),
+    explain:`${den} × ${m} = ${den*m}, so do the same on top: ${num} × ${m} = ${num*m}.`};
+}},
+
+{id:'fracline', name:'Fraction Number Line', gen(d,b){
+  const den=d===1?pick([2,3,4]):pick([3,4,6,8]); const num=R(1,den-1);
+  const W=320,H=58,pad=24, x=pad+(W-2*pad)*(num/den);
+  let ticks=''; for(let i=0;i<=den;i++){ const tx=pad+(W-2*pad)*(i/den);
+    ticks+=`<line x1="${tx}" y1="26" x2="${tx}" y2="38" stroke="#586074" stroke-width="2"/>`; }
+  const svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:340px" role="img" aria-label="number line from 0 to 1 with an arrow">
+    <line x1="${pad}" y1="32" x2="${W-pad}" y2="32" stroke="#586074" stroke-width="3"/>
+    ${ticks}
+    <text x="${pad}" y="52" font-family="Baloo 2,sans-serif" font-size="13" fill="#586074" text-anchor="middle">0</text>
+    <text x="${W-pad}" y="52" font-family="Baloo 2,sans-serif" font-size="13" fill="#586074" text-anchor="middle">1</text>
+    <polygon points="${x-7},14 ${x+7},14 ${x},26" fill="#ff6a3d"/>
+  </svg>`;
+  const opts=new Set([`${num}/${den}`]);
+  while(opts.size<4){ const dn=pick([2,3,4,6,8]); const nn=R(1,dn-1); opts.add(`${nn}/${dn}`); }
+  const arr=shuffle([...opts]).slice(0,4); if(!arr.includes(`${num}/${den}`))arr[0]=`${num}/${den}`;
+  return {type:'mc',choices:arr,answer:arr.indexOf(`${num}/${den}`),
+    prompt:`Which fraction does the arrow point to?<span class="nl">${svg}</span>`,
+    explain:`The line from 0 to 1 is split into ${den} equal parts, and the arrow is at part ${num}, so ${frac(num,den)}.`};
+}},
+
+{id:'cmpfrac', name:'Compare Fractions', gen(d,b){
+  let a,b1,c,e;
+  if(d===1){ const den=pick([3,4,5,6,8]); a=R(1,den-1); b1=den; do{c=R(1,den-1);}while(c===a); e=den; } // same denom
+  else if(d===2){ const num=pick([1,2,3]); a=num; c=num; b1=pick([2,3,4,6,8]); do{e=pick([2,3,4,6,8]);}while(e===b1); } // same numerator
+  else { b1=pick([2,3,4,6,8]); e=pick([2,3,4,6,8]); a=R(1,b1-1); c=R(1,e-1); } // unlike (G4)
+  const ans=ordToCmp(a/b1,c/e);
+  return {type:'compare',choices:['<','=','>'],answer:ans,
+    prompt:`Compare:<br>${frac(a,b1)} <span style="opacity:.4">?</span> ${frac(c,e)}`,
+    explain: b1===e ? `Same bottom number — compare tops: ${a} ${ans} ${c}.`
+      : a===c ? `Same top number — the bigger bottom makes a smaller piece. ${frac(a,b1)} ${ans} ${frac(c,e)}.`
+      : `As amounts, ${frac(a,b1)} ≈ ${(a/b1).toFixed(2)} and ${frac(c,e)} ≈ ${(c/e).toFixed(2)}.`};
+}},
+
+{id:'elapsed', name:'Time', gen(d,b){
+  if(d<3){
+    const h=R(1,11), m=pick([0,5,10,15,20,25,30,35,40]); const add=pick([10,15,20,25,30]);
+    let nm=m+add, nh=h; if(nm>=60){nm-=60;nh=h+1;}
+    const correct=fmtTime(nh,nm);
+    const opts=new Set([correct]);
+    opts.add(fmtTime(h,(m+add+5)%60)); opts.add(fmtTime(nh, (nm+10)%60)); opts.add(fmtTime(h,m));
+    const arr=shuffle([...opts]).slice(0,4); if(!arr.includes(correct))arr[0]=correct;
+    return {type:'mc',choices:arr,answer:arr.indexOf(correct),
+      prompt:`A game starts at <b>${fmtTime(h,m)}</b>. It is <b>${add} minutes</b> long.<br>What time does it end?`,
+      explain:`${m} + ${add} = ${m+add} minutes${m+add>=60?', which rolls into the next hour':''} → ${correct}.`};
+  }
+  // elapsed minutes between two times
+  const h=R(1,10), m=pick([0,5,10,15,20]); const gap=pick([20,25,35,40,45,50]);
+  let nm=m+gap, nh=h; if(nm>=60){nm-=60;nh=h+1;}
+  return {type:'input',inputKind:'int',
+    prompt:`A build starts at <b>${fmtTime(h,m)}</b> and ends at <b>${fmtTime(nh,nm)}</b>.<br>How many <b>minutes</b> did it take?`,
+    answer:String(gap), explain:`From ${fmtTime(h,m)} to ${fmtTime(nh,nm)} is ${gap} minutes.`};
+}},
+
+{id:'graph', name:'Picture Graph', gen(d,b){
+  const scale=pick([2,3,5]); const sym='🟩';
+  if(d===1){ const n=R(3,6); const row=sym.repeat(n);
+    return {type:'input',inputKind:'int',
+      prompt:`Each ${sym} = <b>${scale}</b> blocks mined.<br><span class="row-blocks">${row}</span>How many blocks is that?`,
+      answer:String(n*scale), explain:`${n} symbols × ${scale} each = ${n*scale} blocks.`};
+  }
+  if(d===2){ const n1=R(4,7), n2=R(2,n1-1);
+    return {type:'input',inputKind:'int',
+      prompt:`Each ${sym} = <b>${scale}</b> blocks. <br>Alex: <span class="row-blocks">${sym.repeat(n1)}</span>Sky: <span class="row-blocks">${sym.repeat(n2)}</span>How many <b>more</b> blocks did Alex mine?`,
+      answer:String((n1-n2)*scale), explain:`Alex has ${n1-n2} more symbols. ${n1-n2} × ${scale} = ${(n1-n2)*scale} more blocks.`};
+  }
+  const n1=R(4,8), n2=R(3,7);
+  return {type:'input',inputKind:'int',
+    prompt:`Each ${sym} = <b>${scale}</b> blocks. <br>Mon: <span class="row-blocks">${sym.repeat(n1)}</span>Tue: <span class="row-blocks">${sym.repeat(n2)}</span>How many blocks <b>in total</b>?`,
+    answer:String((n1+n2)*scale), explain:`${n1+n2} symbols × ${scale} = ${(n1+n2)*scale} blocks total.`};
+}},
+
+{id:'distrib', name:'Break Apart', minD:2, gen(d,b){
+  const a=d===2?R(3,7):R(4,9); const x=band(b,3,7), y=band(b,2,6);
+  return {type:'input',inputKind:'int',
+    prompt:`Use the break-apart trick:<br><span class="eq">${a} × (${x} + ${y}) = (${a}×${x}) + (${a}×${y}) = ?</span>`,
+    answer:String(a*(x+y)),
+    explain:`${a}×${x}=${a*x} and ${a}×${y}=${a*y}. ${a*x} + ${a*y} = ${a*(x+y)}.`};
+}},
+
+/* ---- Master-only previews (Grade 4) ---- */
+{id:'factors', name:'Factors & Primes', minD:3, gen(d,b){
+  const mode=pick(['pc','factor','multiple']);
+  if(mode==='pc'){
+    const primes=[2,3,5,7,11,13]; const comps=[4,6,8,9,10,12,14,15];
+    const isP=Math.random()<0.5; const n=pick(isP?primes:comps);
+    const correct=isP?'Prime':'Composite';
+    return Object.assign(MC(correct,[isP?'Composite':'Prime']),{
+      prompt:`Is <b>${n}</b> prime or composite?`,
+      explain:isP?`${n} has only two factors (1 and ${n}), so it is prime.`:`${n} has more than two factors, so it is composite.`});
+  }
+  if(mode==='factor'){
+    const n=pick([12,16,18,20,24,28,30,36]); const facs=[],non=[];
+    for(let i=2;i<n;i++){(n%i===0?facs:non).push(i);}
+    const ans=pick(facs); const wrong=shuffle(non).slice(0,3);
+    return Object.assign(MC(ans,wrong),{
+      prompt:`Which number is a <b>factor</b> of ${n}?`,
+      explain:`${n} ÷ ${ans} = ${n/ans} with nothing left over, so ${ans} is a factor.`});
+  }
+  const k=pick([3,4,6,7,8]); const mult=k*R(3,9);
+  return Object.assign(MC(mult,[mult+1,mult-1,mult+2]),{
+    prompt:`Which number is a <b>multiple of ${k}</b>?`,
+    explain:`${mult} = ${k} × ${mult/k}, so it is a multiple of ${k}.`});
+}},
+
+{id:'addfrac', name:'Add Fractions', minD:3, gen(d,b){
+  const den=pick([3,4,5,6,8]); let n1=R(1,den-2), n2=R(1,den-1-n1); if(n2<1)n2=1;
+  const sum=n1+n2; const [rn,rd]=reduce(sum,den);
+  return {type:'input',inputKind:'frac',
+    prompt:`${frac(n1,den)} <span class="eq">+</span> ${frac(n2,den)} <span class="eq">=</span> ?`,
+    answer: rd===1?String(rn):`${rn}/${rd}`,
+    explain:`Same bottom number: ${n1} + ${n2} = ${sum}, over ${den}. That is ${rd===1?rn:frac(rn,rd)}.`};
+}},
+
+{id:'multfrac', name:'Fraction × Whole', minD:3, gen(d,b){
+  const w=R(2,6), den=pick([2,3,4,5,6,8]); const [rn,rd]=reduce(w,den);
+  return {type:'input',inputKind:'frac',
+    prompt:`${w} <span class="eq">×</span> ${frac(1,den)} <span class="eq">=</span> ?`,
+    answer: rd===1?String(rn):`${rn}/${rd}`,
+    explain:`${w} groups of ${frac(1,den)} is ${frac(w,den)} = ${rd===1?rn:frac(rn,rd)}.`};
+}},
+
+];
+
+/* =========================================================================
+   ELA GENERATORS (Grade 3)
+   ========================================================================= */
+const ELA = [
+
+{id:'conj', name:'Conjunctions', gen(d,b){
+  const items=[
+    ['I wanted to keep building, ___ it got dark.','but'],
+    ['Would you like a sword ___ a shield?','or'],
+    ['Alex packed torches ___ a pickaxe.','and'],
+    ['She tried hard, ___ she still felt nervous.','but'],
+    ['We can mine for gold ___ farm wheat.','or'],
+    ['The wolf barked ___ wagged its tail.','and'],
+    ['We hurried home ___ it started to storm.','because'],
+    ['He stayed inside ___ it was raining.','because'],
+  ];
+  const it=pick(items);
+  const ch=shuffle(['and','but','or','because'].filter(w=>w===it[1]||['and','but','or','because'].includes(w)).slice(0,4));
+  const choices=ch.includes(it[1])?ch:shuffle(['and','but','or',it[1]]);
+  return {type:'mc',choices,answer:choices.indexOf(it[1]),
+    prompt:`Choose the best word to join the sentence:<br><span class="q">${it[0].replace('___','<b>___</b>')}</span>`,
+    explain:`"${it[1]}" fits best here.`};
+}},
+
+{id:'adj', name:'Comparing Words', gen(d,b){
+  const data=[
+    {er:'taller',est:'tallest',base:'tall',two:'This tree is tall, but that one is even ___.',many:'Of all the trees, this one is the ___.'},
+    {er:'faster',est:'fastest',base:'fast',two:'My boat is fast, but yours is ___.',many:'Of all the racers, she is the ___.'},
+    {er:'smaller',est:'smallest',base:'small',two:'This chest is small, but that one is ___.',many:'Of the three cubes, this one is the ___.'},
+    {er:'bigger',est:'biggest',base:'big',two:'My slice is big, but yours is ___.',many:'That is the ___ pumpkin at the whole fair.'},
+    {er:'brighter',est:'brightest',base:'bright',two:'This torch is bright, but the lava is ___.',many:'That is the ___ star in the sky.'},
+    {er:'colder',est:'coldest',base:'cold',two:'Today is cold, but yesterday was ___.',many:'That was the ___ night all winter.'},
+    {er:'louder',est:'loudest',base:'loud',two:'The drum is loud, but the thunder is ___.',many:'That was the ___ cheer of the game.'},
+  ];
+  const w=pick(data); const choices=shuffle([w.er,w.est,w.base]);
+  if(d<3){
+    return {type:'mc',choices,answer:choices.indexOf(w.er),
+      prompt:`Comparing <b>two</b> things, pick the right word:<br><span class="q">${w.two.replace('___','<b>___</b>')}</span>`,
+      explain:`Comparing two things uses the -er form: "${w.er}".`};
+  }
+  return {type:'mc',choices,answer:choices.indexOf(w.est),
+    prompt:`Comparing <b>three or more</b> things, pick the right word:<br><span class="q">${w.many.replace('___','<b>___</b>')}</span>`,
+    explain:`Comparing three or more uses the -est form: "${w.est}".`};
+}},
+
+{id:'plurals', name:'Plural Nouns', gen(d,b){
+  const reg=[['block','blocks'],['tree','trees'],['torch','torches'],['box','boxes'],['wolf','wolves'],['leaf','leaves'],['bush','bushes']];
+  const irr=[['mouse','mice'],['child','children'],['foot','feet'],['tooth','teeth'],['sheep','sheep'],['person','people'],['goose','geese'],['man','men']];
+  const useIrr = d===3 ? true : d===2 ? Math.random()<0.5 : false;
+  const w=pick(useIrr?irr:reg);
+  const distract=[w[0]+'s', w[0]+'es', w[0]];
+  const choices=[];
+  for(const x of [w[1],...distract]){ if(!choices.includes(x))choices.push(x); }
+  const shown=shuffle(choices.slice(0,3).includes(w[1])?choices.slice(0,3):[w[1],...choices.filter(x=>x!==w[1])].slice(0,3));
+  return {type:'mc',choices:shown,answer:shown.indexOf(w[1]),
+    prompt:`Finish the sentence:<br><span class="q">One ${w[0]}, two <b>___</b>.</span>`,
+    explain:`${useIrr?'This is an irregular plural':'Add the right ending'}: "${w[1]}".`};
+}},
+
+{id:'subjverb', name:'Subject–Verb Match', gen(d,b){
+  const items=[
+    ['The wolf ___ across the field.','runs','run'],
+    ['Two builders ___ a tall tower.','build','builds'],
+    ['My brother ___ the game after dinner.','plays','play'],
+    ['The chickens ___ in the yard.','cluck','clucks'],
+    ['She ___ to school every morning.','walks','walk'],
+    ['The miners ___ deep tunnels.','dig','digs'],
+    ['A bat ___ in the dark cave.','flies','fly'],
+  ];
+  const it=pick(items);
+  const choices=shuffle([it[1], it[2]]);
+  return {type:'mc',choices,answer:choices.indexOf(it[1]),
+    prompt:`Choose the verb that matches:<br><span class="q">${it[0].replace('___','<b>___</b>')}</span>`,
+    explain:`The subject and verb must agree: "${it[1]}".`};
+}},
+
+{id:'tense', name:'Verb Tense', gen(d,b){
+  if(d<3){ const items=[
+    {pres:'The sparrow flies and lands on a branch.', past:'The sparrow flew and landed on a branch.', bad:'The sparrow flew and lands on a branch.'},
+    {pres:'She runs to the gate and waves.', past:'She ran to the gate and waved.', bad:'She run to the gate and waved.'},
+    {pres:'We build a fort on the hill.', past:'We built a fort on the hill.', bad:'We builded a fort on the hill.'},
+    {pres:'He catches the ball and throws it back.', past:'He caught the ball and threw it back.', bad:'He catched the ball and threw it back.'},
+  ]; const it=pick(items); const choices=shuffle([it.past,it.bad,it.pres]);
+    return {type:'mc',choices,answer:choices.indexOf(it.past),
+      prompt:`Pick the sentence written correctly in the <b>past tense</b>:<br><span class="q">${it.pres}</span>`,
+      explain:`Past tense: "${it.past}"`};
+  }
+  const items=[
+    {bad:'Yesterday she walks home and finds a coin.', good:'Yesterday she walked home and found a coin.', d2:'Yesterday she walks home and found a coin.'},
+    {bad:'He opened the door and sees his dog.', good:'He opened the door and saw his dog.', d2:'He opens the door and sees his dog.'},
+    {bad:'We packed our bags and leave early.', good:'We packed our bags and left early.', d2:'We pack our bags and leave early.'},
+  ];
+  const it=pick(items); const choices=shuffle([it.good,it.bad,it.d2]);
+  return {type:'mc',choices,answer:choices.indexOf(it.good),
+    prompt:`One verb is in the wrong tense. Pick the corrected sentence:<br><span class="q">${it.bad}</span>`,
+    explain:`Both verbs should be past tense: "${it.good}"`};
+}},
+
+{id:'quotes', name:'Dialogue Punctuation', gen(d,b){
+  const items=[
+    {good:'"Let\'s build a castle," said Mia.', bad:['Let\'s build a castle, said Mia.', '"Let\'s build a castle" said Mia.']},
+    {good:'Theo asked, "Can I help?"', bad:['Theo asked, Can I help?', 'Theo asked "Can I help?"']},
+    {good:'"Watch out!" yelled Sam.', bad:['"Watch out! yelled Sam."', 'Watch out! yelled Sam.']},
+    {good:'"I found gold," she whispered.', bad:['I found gold, she whispered.', '"I found gold she whispered."']},
+  ];
+  const it=pick(items); const choices=shuffle([it.good, ...it.bad]).slice(0,3);
+  if(!choices.includes(it.good))choices[0]=it.good;
+  return {type:'mc',choices,answer:choices.indexOf(it.good),
+    prompt:`Which sentence uses <b>quotation marks</b> correctly?`,
+    explain:`Quotation marks wrap the exact spoken words, with a comma joining the speaker: ${it.good}`};
+}},
+
+{id:'possess', name:'Possessive Nouns', gen(d,b){
+  const sing=[['dog','dog\'s'],['girl','girl\'s'],['miner','miner\'s'],['bird','bird\'s'],['baby','baby\'s']];
+  const plur=[['dogs','dogs\''],['girls','girls\''],['miners','miners\''],['birds','birds\''],['players','players\'']];
+  const useP = d===3 ? pick([true,false]) : false;
+  const w=useP?pick(plur):pick(sing);
+  const noun=pick(['toys','nest','tools','lunch','den']);
+  const wrong = useP ? w[0]+'\'s' : w[0]+'s\'';
+  const choices=shuffle([w[1],wrong,w[0]]);
+  return {type:'mc',choices,answer:choices.indexOf(w[1]),
+    prompt:`Choose the correct possessive:<br><span class="q">The ___ ${noun} ${useP?'were':'was'} ready.</span><div class="hint">${useP?'More than one '+w[0].replace(/s$/,''):'Just one '+w[0]}.</div>`,
+    explain:`${useP?'A plural noun ending in s shows ownership with just an apostrophe':'A singular noun adds apostrophe + s'}: "${w[1]}".`};
+}},
+
+{id:'prefix', name:'Prefixes', gen(d,b){
+  const items=[
+    ['Mom ___likes waiting in long lines.','dis','"dis" means not or opposite'],
+    ['Please ___build the broken wall.','re','"re" means again'],
+    ['The boot was ___tied and floppy.','un','"un" means not'],
+    ['I ___placed my key and can\'t find it.','mis','"mis" means wrongly'],
+    ['Heat the soup before lunch — ___heat the pot.','pre','"pre" means before'],
+  ];
+  const pool=d===3?items:items.slice(0,4); const it=pick(pool);
+  const choices=shuffle(['un','re','dis','mis','pre'].filter(x=>x!==it[1]).slice(0,2).concat(it[1]));
+  return {type:'mc',choices,answer:choices.indexOf(it[1]),
+    prompt:`Choose the prefix that completes the word:<br><span class="q">${it[0].replace('___','<b>___</b>')}</span>`,
+    explain:`${it[2]}, so the word is "${it[1]}${it[0].split('___')[1].split(' ')[0].replace(/[.,]/g,'')}".`};
+}},
+
+{id:'suffix', name:'Suffixes', gen(d,b){
+  if(d<3){ const items=[['quick','quickly'],['slow','slowly'],['brave','bravely'],['quiet','quietly'],['soft','softly']];
+    const w=pick(items); const safe=shuffle([w[1], w[0]+'ley', w[0]+'ness']);
+    return {type:'mc',choices:safe,answer:-1,_fix:true,correct:w[1],
+      prompt:`Add <b>-ly</b> to "<b>${w[0]}</b>" to make an adverb. Which is correct?`,
+      explain:`"${w[0]}" + "ly" = "${w[1]}".`};
+  }
+  const items=[['happy','happiness'],['silly','silliness'],['hurry','hurried'],['carry','carried']];
+  const w=pick(items);
+  const safe=shuffle([w[1], w[0]+'ness', w[0].slice(0,-1)+'yer']);
+  return {type:'mc',choices:safe,answer:-1,_fix:true,correct:w[1],
+    prompt:`Change the <b>y</b> to <b>i</b>, then add the suffix:<br><span class="q">"${w[0]}" + suffix = ?</span>`,
+    explain:`When a word ends in consonant + y, change y to i: "${w[1]}".`};
+}},
+
+{id:'pronoun', name:'Pronouns', gen(d,b){
+  if(d<3){ const items=[
+      ['Dad and ___ built a treehouse.','I','It is part of the subject (who did it) → "I".'],
+      ['Can you hand ___ the pickaxe?','me','It receives the action → "me".'],
+      ['My friend and ___ went to the cave.','I','Subject of the sentence → "I".'],
+      ['Grandma baked cookies for ___.','me','Object after "for" → "me".'],
+    ];
+    const it=pick(items); const choices=shuffle(['I','me']);
+    return {type:'mc',choices,answer:choices.indexOf(it[1]),
+      prompt:`Choose <b>I</b> or <b>me</b>:<br><span class="q">${it[0].replace('___','<b>___</b>')}</span>`,
+      explain:it[2]};
+  }
+  const items=[
+    ['Maya lost her hat, so ___ looked everywhere.','she','Maya is one girl → "she".'],
+    ['The boys finished, then ___ went home.','they','The boys are more than one → "they".'],
+    ['The dog wagged ___ tail.','its','The tail belongs to the dog → "its".'],
+    ['Sam and I packed ___ bags.','our','The bags belong to Sam and me → "our".'],
+  ];
+  const it=pick(items); const choices=shuffle([it[1], ...(['she','they','its','our','he','their'].filter(x=>x!==it[1]).slice(0,2))]);
+  return {type:'mc',choices,answer:choices.indexOf(it[1]),
+    prompt:`Choose the pronoun that matches:<br><span class="q">${it[0].replace('___','<b>___</b>')}</span>`,
+    explain:it[2]};
+}},
+
+{id:'context', name:'Context Clues', gen(d,b){
+  const items=[
+    {s:'The cave was so <b>dim</b> we could barely see our hands.', a:'dark', d:['bright','warm','loud']},
+    {s:'After the long hike we were <b>weary</b> and just wanted to rest.', a:'tired', d:['excited','hungry','fast']},
+    {s:'The puppy was <b>timid</b> and hid behind the couch when guests came.', a:'shy', d:['brave','angry','huge']},
+    {s:'We had <b>plenty</b> of food, more than enough for everyone.', a:'a lot', d:['very little','none','old']},
+    {s:'The river was <b>swift</b>, rushing past the rocks quickly.', a:'fast', d:['slow','frozen','dry']},
+    {s:'She spoke in a <b>gentle</b> voice so she would not wake the baby.', a:'soft and kind', d:['loud','angry','funny']},
+  ];
+  const it=pick(items); const choices=shuffle([it.a,...it.d]).slice(0,4);
+  if(!choices.includes(it.a))choices[0]=it.a;
+  return {type:'mc',choices,answer:choices.indexOf(it.a),
+    prompt:`Use the clues in the sentence. What does the bold word mean?<br><span class="q">${it.s}</span>`,
+    explain:`The clues point to "${it.a}".`};
+}},
+
+{id:'synant', name:'Synonyms & Antonyms', gen(d,b){
+  const syn=[['happy','glad',['sad','tired','loud']],['big','huge',['tiny','soft','fast']],
+    ['fast','quick',['slow','heavy','dark']],['begin','start',['stop','finish','close']],
+    ['tired','sleepy',['rested','excited','hungry']],['shout','yell',['whisper','listen','sleep']]];
+  const ant=[['ancient','modern',['old','dusty','quiet']],['brave','fearful',['bold','strong','tall']],
+    ['expand','shrink',['grow','stretch','widen']],['rapid','slow',['quick','fast','speedy']],
+    ['arrive','leave',['enter','reach','land']],['gather','scatter',['collect','hold','keep']]];
+  const useAnt = d===3 ? true : d===2 ? Math.random()<0.5 : false;
+  const set=useAnt?pick(ant):pick(syn); const choices=shuffle([set[1],...set[2]]);
+  return {type:'mc',choices,answer:choices.indexOf(set[1]),
+    prompt:`Which word means the <b>${useAnt?'OPPOSITE of':'SAME as'}</b> "<b>${set[0]}</b>"?`,
+    explain:`"${set[1]}" means ${useAnt?'the opposite of':'about the same as'} "${set[0]}".`};
+}},
+
+{id:'roots', name:'Word Roots', gen(d,b){
+  const items=[
+    ['The prefix <b>"tri"</b> means "three." A <b>triangle</b> has...','three sides',['three sides','two sides','five sides','no sides']],
+    ['The prefix <b>"bi"</b> means "two." A <b>bicycle</b> has...','two wheels',['two wheels','three wheels','one wheel','four wheels']],
+    ['The root <b>"port"</b> means "carry." To <b>transport</b> means to...','carry across',['carry across','look at','break apart','make smaller']],
+    ['The root <b>"tele"</b> means "far." A <b>telescope</b> helps you...','see far away',['see far away','write a letter','hear music','cook food']],
+  ];
+  const it=pick(items); const choices=shuffle(it[2]);
+  return {type:'mc',choices,answer:choices.indexOf(it[1]),
+    prompt:it[0],explain:`"${it[1]}" — the root gives the clue.`};
+}},
+
+{id:'figlang', name:'Word Meaning', gen(d,b){
+  if(d<3){ const items=[
+    {s:'It is raining cats and dogs!', a:'It is raining very hard', d:['Animals fell from the sky','It is sunny','Cats like rain']},
+    {s:'Her room was a zoo this morning.', a:'Her room was wild and messy', d:['She keeps animals','Her room is clean','She visited a zoo']},
+    {s:'I am so hungry I could eat a horse.', a:'I am very hungry', d:['I want to eat a horse','I am full','I like horses']},
+    {s:'The test was a piece of cake.', a:'The test was very easy', d:['The test was made of cake','The test was hard','We ate cake']},
+  ]; const it=pick(items); const choices=shuffle([it.a,...it.d]).slice(0,4); if(!choices.includes(it.a))choices[0]=it.a;
+    return {type:'mc',choices,answer:choices.indexOf(it.a),
+      prompt:`This sentence is <b>nonliteral</b>. What does it really mean?<br><span class="q">${it.s}</span>`,
+      explain:`It is a saying, not literal. It means: ${it.a}.`};
+  }
+  const items=[
+    {s:'The stars were tiny diamonds in the sky.', a:'Metaphor', ex:'It calls the stars diamonds directly (no "like"/"as") — a metaphor.'},
+    {s:'Her smile was as bright as the sun.', a:'Simile', ex:'It compares using "as ... as" — a simile.'},
+    {s:'The wind whispered through the trees.', a:'Personification', ex:'Wind cannot really whisper — giving it a human action is personification.'},
+    {s:'He ran as fast as a cheetah.', a:'Simile', ex:'It compares using "as ... as" — a simile.'},
+  ];
+  const it=pick(items); const choices=shuffle(['Simile','Metaphor','Personification']);
+  return {type:'mc',choices,answer:choices.indexOf(it.a),
+    prompt:`What kind of figurative language is this?<br><span class="q">${it.s}</span>`,
+    explain:it.ex};
+}},
+
+{id:'prep', name:'Prepositional Phrases', minD:2, gen(d,b){
+  const items=[
+    {s:'We watched the boats on the lake.', a:'on the lake', d:['watched the boats','the wide boats']},
+    {s:'The cat slept under the warm blanket.', a:'under the warm blanket', d:['The cat slept','slept quietly']},
+    {s:'She put the gems inside her backpack.', a:'inside her backpack', d:['put the gems','She quickly put']},
+    {s:'They hiked through the tall forest.', a:'through the tall forest', d:['They hiked','hiked slowly']},
+    {s:'A bat is hiding in the dark cave.', a:'in the dark cave', d:['A bat is','is softly hiding']},
+  ];
+  const it=pick(items); const choices=shuffle([it.a, it.d[0], it.d[1]]);
+  return {type:'mc',choices,answer:choices.indexOf(it.a),
+    prompt:`Which group of words is the <b>prepositional phrase</b>?<br><span class="q">${it.s}</span>`,
+    explain:`A prepositional phrase starts with a preposition (on, under, in...) and ends with a noun: "${it.a}".`};
+}},
+
+{id:'spell', name:'Spelling', gen(d,b){
+  const sets=[
+    ['friend',['freind','frend','frien']],
+    ['because',['becuase','becouse','becaus']],
+    ['build',['biuld','buld','bild']],
+    ['caught',['caght','cought','cauhgt']],
+    ['knew',['knwe','knewe','knu']],
+    ['heard',['herd','heared','hurd']],
+    ['enough',['enuff','enugh','enouhg']],
+    ['favorite',['favrite','faverite','favorit']],
+  ];
+  const s=pick(sets);
+  return Object.assign(MC(s[0], s[1]), {
+    prompt:`Which word is spelled <b>correctly</b>?`,
+    explain:`The correct spelling is "${s[0]}".`});
+}},
+
+{id:'reading', name:'Reading', gen(d,b){
+  const P = READING.filter(p=> d===1 ? p.lvl<=1 : d===2 ? p.lvl<=2 : true );
+  const pass = pick(P.length?P:READING);
+  const q = pick(pass.qs);
+  const choices=shuffle(q.choices);
+  return {type:'mc',choices,answer:choices.indexOf(q.a),
+    prompt:`<div class="passage"><span class="ptitle">${pass.title}</span>${pass.text}</div><span class="q">${q.q}</span>`,
+    explain:q.ex||`The text supports "${q.a}".`};
+}},
+
+];
+
+/* =========================================================================
+   AUDIO — synthesized chiptune blips via Web Audio (no external files).
+   ========================================================================= */
+const Audio8 = (()=>{
+  let ctx=null, ok=true;
+  function ac(){ if(ctx)return ctx;
+    try{ const C=window.AudioContext||window.webkitAudioContext; if(!C){ok=false;return null;} ctx=new C(); }
+    catch(e){ ok=false; return null; } return ctx; }
+  function tone(freq,start,dur,type,vol){
+    const c=ac(); if(!c)return;
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type||'square'; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,c.currentTime+start);
+    g.gain.exponentialRampToValueAtTime(vol||0.18,c.currentTime+start+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+start+dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(c.currentTime+start); o.stop(c.currentTime+start+dur+0.02);
+  }
+  function noise(start,dur,vol){
+    const c=ac(); if(!c)return;
+    const n=Math.floor(c.sampleRate*dur); const buf=c.createBuffer(1,n,c.sampleRate); const data=buf.getChannelData(0);
+    for(let i=0;i<n;i++) data[i]=(Math.random()*2-1)*(1-i/n);
+    const s=c.createBufferSource(); s.buffer=buf; const g=c.createGain(); g.gain.value=vol||0.12;
+    s.connect(g); g.connect(c.destination); s.start(c.currentTime+start);
+  }
+  function unlock(){ const c=ac(); if(c&&c.state==='suspended') c.resume(); }
+  return {
+    ok:()=>ok, unlock,
+    place(){ tone(523,0,0.08,'square',0.16); noise(0.02,0.06,0.06); },
+    correct(streak){ const base=[523,659,784]; base.forEach((f,i)=>tone(f*(streak>=5?1.0:1),i*0.07,0.12,'square',0.16)); if(streak>=5)tone(1046,0.21,0.14,'square',0.16); },
+    wrong(){ tone(196,0,0.16,'triangle',0.16); tone(150,0.10,0.18,'triangle',0.14); },
+    mine(){ noise(0,0.09,0.12); tone(180,0,0.07,'square',0.08); },
+    complete(){ const m=[523,659,784,1046,784,1046,1318]; m.forEach((f,i)=>tone(f,i*0.11,0.16,'square',0.17)); },
+    click(){ tone(440,0,0.05,'square',0.10); }
+  };
+})();
+
+/* =========================================================================
+   PRAISE POOLS — varied so it never gets old.
+   ========================================================================= */
+const PRAISE_OK = ['Block placed! 🟩','Nice mining! ⛏️','Solid build!','Critical hit! ⚔️','Crafted it! 🛠️',
+  'Diamond find! 💎','Stacked it!','Clean swing!','You built that!','Ore secured!','Boom — nailed it! 🧨',
+  'Master move!','Locked in!','Brick by brick! 🧱','XP gained! ✨','Flawless place!','Big brain mining! 🧠'];
+const PRAISE_NO = ['Creeper got that one — here\'s the trick:','Respawn and retry — quick tip:','Almost mined it! Here\'s how:',
+  'Patch the wall — here\'s the fix:','Close! Here\'s the blueprint:','Tricky block — here\'s the trick:'];
+let _lastOk=-1,_lastNo=-1;
+function praiseOk(){ let i; do{i=Math.floor(Math.random()*PRAISE_OK.length);}while(i===_lastOk&&PRAISE_OK.length>1); _lastOk=i; return PRAISE_OK[i]; }
+function praiseNo(){ let i; do{i=Math.floor(Math.random()*PRAISE_NO.length);}while(i===_lastNo&&PRAISE_NO.length>1); _lastNo=i; return PRAISE_NO[i]; }
+
+/* =========================================================================
+   SESSION ENGINE
+   ========================================================================= */
+const GOAL = 10;
+const LEVELMAP = {apprentice:1, builder:2, master:3};
+const state = {
+  subject:null, level:null, base:2, boost:0.5,
+  streak:0, solved:0, correct:0, totalGems:0,
+  lastGenId:null, lastSubj:null, subjRun:0,
+  missedQueue:[], current:null, answered:false, selected:null, muted:false
+};
+const $ = sel=>document.querySelector(sel);
+
+/* ----- home wiring ----- */
+let chosenSubj=null, chosenLvl=null;
+document.querySelectorAll('#subjGrid .opt').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    Audio8.unlock(); if(!state.muted)Audio8.click();
+    document.querySelectorAll('#subjGrid .opt').forEach(b=>b.setAttribute('aria-pressed','false'));
+    btn.setAttribute('aria-pressed','true'); chosenSubj=btn.dataset.subj; refreshStart();
+  });
+});
+document.querySelectorAll('#lvlGrid .opt').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    Audio8.unlock(); if(!state.muted)Audio8.click();
+    document.querySelectorAll('#lvlGrid .opt').forEach(b=>b.setAttribute('aria-pressed','false'));
+    btn.setAttribute('aria-pressed','true'); chosenLvl=btn.dataset.lvl; refreshStart();
+  });
+});
+function refreshStart(){
+  const s=$('#startBtn'); const ready=chosenSubj&&chosenLvl; s.disabled=!ready;
+  s.textContent = ready ? 'Start building ⛏️' : 'Pick a subject & challenge ↑';
+}
+$('#muteBtn').addEventListener('click',()=>{
+  state.muted=!state.muted; const b=$('#muteBtn');
+  b.textContent=state.muted?'🔇':'🔊'; b.setAttribute('aria-pressed',String(state.muted));
+  if(!state.muted){ Audio8.unlock(); Audio8.click(); }
+});
+$('#startBtn').addEventListener('click',startSession);
+$('#backBtn').addEventListener('click',()=>{ if(!state.muted)Audio8.click(); $('#play').classList.add('hidden'); $('#home').classList.remove('hidden'); });
+
+function startSession(){
+  Audio8.unlock();
+  state.subject=chosenSubj; state.level=chosenLvl; state.base=LEVELMAP[chosenLvl];
+  state.boost=0.5; state.streak=0; state.solved=0; state.correct=0;
+  state.missedQueue=[]; state.lastGenId=null; state.lastSubj=null; state.subjRun=0;
+  $('#home').classList.add('hidden'); $('#play').classList.remove('hidden');
+  const sp=$('#subjPill');
+  const label = state.subject==='math'?'⛏️ Math':state.subject==='ela'?'📖 Reading':'🌍 Survival';
+  sp.className='pill '+(state.subject==='math'?'subj-math':state.subject==='ela'?'subj-ela':'');
+  sp.textContent=label;
+  $('#scorePill').textContent=state.totalGems;
+  drawBuild(0); nextQuestion();
+}
+
+/* ----- choose next generator ----- */
+function poolFor(subj){ return subj==='math'?MATH:ELA; }
+function nextSubject(){
+  if(state.subject!=='mixed') return state.subject;
+  // math weighted slightly heavier (summer math loss > reading); avoid 3 same in a row
+  if(state.subjRun>=2) return state.lastSubj==='math'?'ela':'math';
+  return Math.random()<0.6?'math':'ela';
+}
+function nextQuestion(){
+  state.answered=false; state.selected=null;
+  let genObj, subj;
+  if(state.missedQueue.length && state.solved>0 && Math.random()<0.4){
+    const m=state.missedQueue.shift(); genObj=m.gen; subj=m.subj;
+  } else {
+    subj=nextSubject();
+    const list=poolFor(subj).filter(g=>(g.minD||1)<=state.base && g.id!==state.lastGenId);
+    genObj=pick(list.length?list:poolFor(subj).filter(g=>(g.minD||1)<=state.base));
+  }
+  state.subjRun = subj===state.lastSubj ? state.subjRun+1 : 1;
+  state.lastGenId=genObj.id; state.lastSubj=subj;
+
+  const prob = genObj.gen(state.base, clamp01(state.boost));
+  if(prob._fix){ prob.answer = prob.choices.indexOf(prob.correct); }
+  prob.skill=genObj.name; prob.subj=subj; prob.genObj=genObj;
+  state.current=prob; renderQuestion(prob);
+}
+
+/* ----- render ----- */
+function renderQuestion(p){
+  const c=$('#qcard'); let answersHTML='';
+  if(p.type==='mc'){
+    answersHTML=`<div class="answers mc" id="answers">`+
+      p.choices.map((ch,i)=>`<button class="choice" data-i="${i}"><span class="key">${i+1}</span><span>${ch}</span></button>`).join('')+`</div>`;
+  } else if(p.type==='compare'){
+    answersHTML=`<div class="answers cmp" id="answers">`+
+      p.choices.map((ch,i)=>`<button class="choice" data-i="${i}" data-sym="${ch}">${ch}</button>`).join('')+`</div>`;
+  } else if(p.type==='qr'){
+    answersHTML=`<div class="qr"><input id="qq" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="?" aria-label="quotient"><span class="rlabel">R</span><input id="rr" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="?" aria-label="remainder"></div><div class="hint">Answer, then the <b>R</b>emainder (the leftover).</div>`;
+  } else if(p.inputKind==='frac'){
+    answersHTML=`<div class="fracbox"><input id="fnum" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="top" aria-label="top number"><span class="fbar"></span><input id="fden" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="bottom" aria-label="bottom number"></div><div class="hint">Type the top and bottom. Whole number? Leave the bottom empty.</div>`;
+  } else {
+    const ik=p.inputKind==='int'?'numeric':'text';
+    answersHTML=`<div class="inputrow"><input id="ans" inputmode="${ik}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="answer"></div>`;
+  }
+  c.innerHTML=`
+    <span class="skilltag ${p.subj}">${p.skill}</span>
+    <div class="prompt">${p.prompt}</div>
+    ${answersHTML}
+    <div class="fb" id="fb" aria-live="polite"></div>
+    <div class="act"><button class="btn btn-primary" id="primary">Check</button></div>`;
+
+  const enterCheck=e=>{ if(e.key==='Enter'){ e.preventDefault(); onPrimary(); } };
+  if(p.inputKind==='frac'){ const fn=$('#fnum'); fn.focus(); fn.addEventListener('keydown',enterCheck); $('#fden').addEventListener('keydown',enterCheck); }
+  else if(p.type==='qr'){ const qq=$('#qq'); qq.focus(); qq.addEventListener('keydown',enterCheck); $('#rr').addEventListener('keydown',enterCheck); }
+  else if(p.type==='input'){ const inp=$('#ans'); inp.focus(); inp.addEventListener('keydown',enterCheck); }
+  else { c.querySelectorAll('.choice').forEach(btn=> btn.addEventListener('click',()=>selectChoice(btn,p))); }
+  $('#primary').addEventListener('click',onPrimary);
+}
+function selectChoice(btn,p){
+  if(state.answered)return;
+  if(!state.muted)Audio8.click();
+  const wrap=$('#answers'); if(!wrap)return;
+  wrap.querySelectorAll('.choice').forEach(b=>b.classList.remove('pick'));
+  btn.classList.add('pick');
+  state.selected = p.type==='compare' ? btn.dataset.sym : Number(btn.dataset.i);
+}
+window.addEventListener('keydown',e=>{
+  if($('#play').classList.contains('hidden'))return;
+  const p=state.current; if(!p||state.answered)return;
+  if(p.type==='mc'||p.type==='compare'){
+    if(e.key==='Enter'){ onPrimary(); return; }
+    const n=parseInt(e.key,10);
+    if(n>=1 && n<=p.choices.length){ const btn=$('#answers').querySelector('.choice[data-i="'+(n-1)+'"]'); if(btn)selectChoice(btn,p); }
+  }
+});
+
+/* ----- checking ----- */
+function parseFrac(s){
+  s=String(s).trim().replace(/[\\\u2044\u00f7]/g,'/');
+  if(s.includes('/')){const [a,b]=s.split('/').map(x=>parseInt(x,10)); if(!b||Number.isNaN(a))return null; return [a,b];}
+  if(s==='')return null;
+  const n=Number(s); if(Number.isNaN(n))return null; return [n,1];
+}
+function checkInput(p,raw){
+  const v=String(raw).trim(); if(v==='')return false;
+  if(p.inputKind==='int')return parseInt(v,10)===parseInt(p.answer,10);
+  if(p.inputKind==='frac'){ const a=parseFrac(v), b=parseFrac(p.answer); if(!a||!b)return false; return a[0]*b[1]===b[0]*a[1]; }
+  const norm=s=>String(s).toLowerCase().replace(/[.\s]+$/,'').replace(/\s+/g,' ').trim();
+  const ans=Array.isArray(p.answer)?p.answer:[p.answer];
+  return ans.some(x=>norm(x)===norm(v));
+}
+function currentCorrect(p){
+  if(p.type==='mc'||p.type==='compare') return state.selected===p.answer;
+  if(p.type==='qr'){
+    const q=parseInt($('#qq').value,10); const rRaw=$('#rr').value.trim();
+    const r=rRaw===''?0:parseInt(rRaw,10);
+    return q===p.answer.q && r===p.answer.r;
+  }
+  if(p.inputKind==='frac'){
+    const numRaw=$('#fnum').value.trim(), denRaw=$('#fden').value.trim();
+    if(numRaw==='')return false;
+    const num=parseInt(numRaw,10); const den=denRaw===''?1:parseInt(denRaw,10);
+    if(Number.isNaN(num)||Number.isNaN(den)||den===0)return false;
+    const ans=parseFrac(p.answer); if(!ans)return false;
+    return num*ans[1]===ans[0]*den;
+  }
+  return checkInput(p,$('#ans').value);
+}
+function isEmptyAnswer(p){
+  if(p.type==='mc'||p.type==='compare') return state.selected==null;
+  if(p.type==='qr') return $('#qq').value.trim()==='';
+  if(p.inputKind==='frac') return $('#fnum').value.trim()==='';
+  return $('#ans').value.trim()==='';
+}
+
+function onPrimary(){
+  const p=state.current;
+  if(!state.answered){
+    if(isEmptyAnswer(p)){ nudge(p.type==='mc'||p.type==='compare'?'Pick an answer first.':'Type your answer first.'); return; }
+    grade(currentCorrect(p));
+  } else {
+    if(state.solved>=GOAL) celebrate(); else { if(!state.muted)Audio8.click(); nextQuestion(); }
+  }
+}
+function nudge(msg){ const fb=$('#fb'); fb.className='fb no show'; fb.innerHTML=`<span class="fic">👆</span><span>${msg}</span>`; }
+
+function grade(ok){
+  state.answered=true;
+  const p=state.current; const c=$('#qcard');
+  if(p.type==='mc'||p.type==='compare'){
+    $('#answers').querySelectorAll('.choice').forEach(btn=>{
+      btn.disabled=true; const i=Number(btn.dataset.i);
+      if(i===p.answer)btn.classList.add('correct');
+      else if((p.type==='compare'?btn.dataset.sym:i)===state.selected)btn.classList.add('wrong');
+    });
+  } else if(p.type==='qr'){
+    $('#qq').disabled=true; $('#rr').disabled=true;
+    if(!ok){ $('#qq').classList.add('wrongbox'); $('#rr').classList.add('wrongbox'); }
+  } else if(p.inputKind==='frac'){
+    $('#fnum').disabled=true; $('#fden').disabled=true;
+    if(!ok){ $('#fnum').classList.add('wrongbox'); $('#fden').classList.add('wrongbox'); }
+  } else {
+    $('#ans').disabled=true;
+    if(!ok){ const correctTxt=Array.isArray(p.answer)?p.answer[0]:p.answer; $('#ans').classList.add('wrongbox'); $('#ans').value=$('#ans').value+'  →  '+correctTxt; }
+  }
+  const fb=$('#fb');
+  if(ok){
+    state.correct++; state.totalGems++; state.streak++;
+    if(state.streak>=2) state.boost=clamp01(state.boost+0.12);
+    $('#scorePill').textContent=state.totalGems;
+    let head=praiseOk();
+    if(state.streak===3)head='🔥 3-block combo!';
+    else if(state.streak===5)head='⚡ 5 in a row — on a roll!';
+    else if(state.streak>=7)head=`💎 ${state.streak} streak! Unstoppable!`;
+    fb.className='fb ok show';
+    fb.innerHTML=`<span class="fic">🎉</span><span>${head}<span class="ex">${p.explain}</span></span>`;
+    c.classList.remove('shake'); void c.offsetWidth; c.classList.add('pop'); setTimeout(()=>c.classList.remove('pop'),360);
+    if(!state.muted){ Audio8.place(); setTimeout(()=>Audio8.correct(state.streak),60); }
+  } else {
+    state.streak=0; state.boost=clamp01(state.boost-0.2);
+    fb.className='fb no show';
+    fb.innerHTML=`<span class="fic">💡</span><span>${praiseNo()}<span class="ex">${p.explain}</span></span>`;
+    state.missedQueue.push({gen:p.genObj, subj:p.subj});
+    c.classList.remove('pop'); void c.offsetWidth; c.classList.add('shake'); setTimeout(()=>c.classList.remove('shake'),440);
+    if(!state.muted)Audio8.wrong();
+  }
+  state.solved++;
+  drawBuild(Math.min(state.solved,GOAL)/GOAL);
+
+  const btn=$('#primary');
+  btn.textContent = state.solved>=GOAL ? 'Finish the build 🏰' : 'Next block →';
+  btn.focus();
+}
+
+/* ----- the rising build (signature element) ----- */
+const MATERIALS=[ // bottom -> top, paired by row
+  ['#7a5733','#5d4126'],['#7a5733','#5d4126'],   // dirt
+  ['#8d95a1','#5d6470'],['#8d95a1','#5d6470'],   // stone
+  ['#6c7482','#454c57'],['#6c7482','#454c57'],   // cobble
+  ['#ffc23c','#d99412'],['#ffc23c','#d99412'],   // gold
+  ['#34d4e6','#1d9fb0'],['#34d4e6','#1d9fb0']    // diamond
+];
+function drawBuild(p){
+  const placed=Math.round(p*GOAL);
+  const W=240,H=170, groundY=150, bw=44, bh=24, gap=4;
+  const totalW=2*bw+6, startX=(W-totalW)/2;
+  // sky brightens from night to day as it rises
+  const sky=[blend('#1a2238','#5fa8e0',p), blend('#2a3a5c','#bfe2f4',p)];
+  let blocks='';
+  for(let k=0;k<placed;k++){
+    const row=Math.floor(k/2), col=k%2;
+    const x=startX+col*(bw+6); const y=groundY-bh-row*(bh+gap);
+    const m=MATERIALS[row]||MATERIALS[0];
+    blocks+=`<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${m[0]}"/>
+      <rect x="${x}" y="${y}" width="${bw}" height="4" fill="#ffffff55"/>
+      <rect x="${x}" y="${y+bh-4}" width="${bw}" height="4" fill="${m[1]}"/>
+      <rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="none" stroke="#00000033" stroke-width="1.5"/>`;
+  }
+  let flag='';
+  if(placed>=GOAL){
+    const topRow=4, fx=W/2; const fy=groundY-bh-topRow*(bh+gap)-2;
+    flag=`<line x1="${fx}" y1="${fy}" x2="${fx}" y2="${fy-26}" stroke="#caa15a" stroke-width="3"/>
+      <polygon points="${fx},${fy-26} ${fx+22},${fy-20} ${fx},${fy-14}" fill="#e5433a"/>`;
+  }
+  $('#world').innerHTML=`
+  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Build progress: ${placed} of ${GOAL} blocks placed">
+    <defs><linearGradient id="bsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs>
+    <rect width="${W}" height="${H}" fill="url(#bsky)"/>
+    <rect x="0" y="${groundY}" width="${W}" height="${H-groundY}" fill="#3f8a22"/>
+    <rect x="0" y="${groundY}" width="${W}" height="6" fill="#5fae3a"/>
+    <rect x="0" y="${groundY+6}" width="${W}" height="${H-groundY-6}" fill="#7a5733"/>
+    ${blocks}${flag}
+    <text x="12" y="22" fill="#ffffff" opacity="0.92" font-family="Baloo 2,sans-serif" font-weight="800" font-size="13">${state.correct}/${state.solved} right · ${placed}/${GOAL} blocks</text>
+  </svg>`;
+}
+function blend(h1,h2,t){ const c1=hex(h1),c2=hex(h2);
+  const r=Math.round(c1[0]+(c2[0]-c1[0])*t),g=Math.round(c1[1]+(c2[1]-c1[1])*t),b=Math.round(c1[2]+(c2[2]-c1[2])*t);
+  return `rgb(${r},${g},${b})`; }
+function hex(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+
+/* ----- celebration ----- */
+function celebrate(){
+  const pct=Math.round(state.correct/state.solved*100);
+  let title = pct>=90?'LEGENDARY BUILD!' : pct>=70?'BUILD COMPLETE!' : 'YOU FINISHED!';
+  let emoji = pct>=90?'💎':'🏰';
+  let msg = pct>=90?'Diamond-tier work! ✨' : pct>=70?'Strong building today! 🧱' : 'Every block counts — you kept going. 💪';
+  const c=$('#qcard');
+  c.innerHTML=`
+    <div class="cele">
+      <div class="big">${emoji}</div>
+      <h2 class="pixel">${title}</h2>
+      <p>You placed <b>${state.solved}</b> blocks and got <b>${state.correct}</b> right. ${msg}</p>
+      <div class="row">
+        <button class="btn btn-primary" id="again">Build again ⛏️</button>
+        <button class="btn btn-ghost" id="switch">Change focus</button>
+      </div>
+    </div>`;
+  if(!state.muted)Audio8.complete();
+  confetti();
+  $('#again').addEventListener('click',()=>{ if(!state.muted)Audio8.click(); state.solved=0; state.correct=0; state.streak=0; drawBuild(0); nextQuestion(); });
+  $('#switch').addEventListener('click',()=>{ if(!state.muted)Audio8.click(); $('#play').classList.add('hidden'); $('#home').classList.remove('hidden'); });
+}
+function confetti(){
+  if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches)return;
+  const box=$('#confetti'); box.innerHTML='';
+  const cols=['#5fae3a','#7a5733','#8d95a1','#ffc23c','#34d4e6','#ff6a3d','#e5433a'];
+  for(let i=0;i<64;i++){ const s=document.createElement('i');
+    s.style.left=Math.random()*100+'vw'; s.style.background=pick(cols);
+    s.style.animationDuration=(2.2+Math.random()*1.8)+'s'; s.style.animationDelay=(Math.random()*0.5)+'s';
+    s.style.transform=`rotate(${Math.random()*360}deg)`; box.appendChild(s); }
+  setTimeout(()=>{box.innerHTML='';},4600);
+}
+</script>
+</body>
+</html>

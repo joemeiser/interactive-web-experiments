@@ -168,6 +168,23 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .qcard.pop{animation:popk .36s ease}
 .qcard.shake{animation:shakek .44s ease}
 
+/* sound toggle */
+.soundtoggle{margin-left:auto;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.24);backdrop-filter:blur(4px);font-size:1.1rem;line-height:1;display:grid;place-items:center;box-shadow:var(--shadow-sm);transition:transform .1s ease,background .15s ease}
+.soundtoggle:hover{transform:scale(1.06);background:rgba(255,255,255,.36)}
+.soundtoggle:active{transform:scale(.94)}
+.soundtoggle[aria-pressed="false"]{opacity:.7;filter:grayscale(.4)}
+.brand .tag{margin-left:10px}
+
+/* visual effects layer */
+.fx{position:fixed;inset:0;pointer-events:none;z-index:60;overflow:hidden}
+.fxitem{position:fixed;transform:translate(-50%,-50%);will-change:transform,opacity}
+.fx .spark{font-size:1.3rem;animation:sparkfly .9s ease-out forwards}
+.fx .conf{width:9px;height:13px;border-radius:2px;animation:confburst 1s ease-out forwards}
+.fx .rise{font-family:"Fredoka";font-weight:700;font-size:1.35rem;color:var(--sun-deep);animation:riseup 1.05s ease-out forwards}
+@keyframes sparkfly{0%{transform:translate(-50%,-50%) scale(.3);opacity:0}30%{opacity:1}100%{transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(1);opacity:0}}
+@keyframes confburst{0%{transform:translate(-50%,-50%) rotate(0);opacity:1}100%{transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) rotate(var(--rot));opacity:0}}
+@keyframes riseup{0%{transform:translate(-50%,-50%) scale(.5);opacity:0}25%{opacity:1}100%{transform:translate(-50%,calc(-50% - 76px)) scale(1.15);opacity:0}}
+
 @media (max-width:480px){
   .subj-grid{grid-template-columns:1fr}
   .prompt{font-size:1.2rem}
@@ -192,6 +209,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
       <circle cx="24" cy="24" r="11" fill="#ff9f1c"/>
     </svg>
     <div class="name">Sun<b>·</b>ward</div>
+    <button id="soundBtn" class="soundtoggle" aria-pressed="true" title="Sound on/off" aria-label="Toggle sound">🔊</button>
     <div class="tag">Summer Skills</div>
   </div>
 
@@ -261,6 +279,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 </div>
 
 <div class="confetti" id="confetti" aria-hidden="true"></div>
+<div class="fx" id="fx" aria-hidden="true"></div>
 
 <script>
 "use strict";
@@ -290,6 +309,111 @@ function withDistractors(correct, makers){
 }
 // boost -> high end of a range. lo/hi are the band ends; returns int.
 const band=(b,lo,hi)=>Math.round(lo+(hi-lo)*b);
+
+/* =========================================================================
+   SOUND ENGINE — synthesized with Web Audio (no audio files; fully offline)
+   ========================================================================= */
+const Sound = (()=>{
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ctx=null, on=true;
+  const N={C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392,A4:440,B4:493.88,
+           C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99,A5:880,B5:987.77,C6:1046.5,E6:1318.5,G6:1568};
+  function init(){ if(ctx||!AC)return; try{ctx=new AC();}catch(e){ctx=null;} }
+  function resume(){ if(ctx&&ctx.state==='suspended'){ try{ctx.resume();}catch(e){} } }
+  function note(freq,start,dur,type,vol,glideTo){
+    if(!ctx)return;
+    const t0=ctx.currentTime+start;
+    const osc=ctx.createOscillator(), g=ctx.createGain();
+    osc.type=type||'sine'; osc.frequency.setValueAtTime(freq,t0);
+    if(glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo,t0+dur);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol||0.18,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0); osc.stop(t0+dur+0.03);
+  }
+  const correctSets=[['E5','G5','C6'],['C5','E5','G5'],['D5','F5','A5'],['G4','C5','E5'],['F5','A5','C6'],['A4','C5','E5'],['C5','G5','E6']];
+  let lastC=-1;
+  function correct(){
+    let i; do{i=Math.floor(Math.random()*correctSets.length);}while(i===lastC&&correctSets.length>1); lastC=i;
+    const seq=correctSets[i], type=Math.random()<0.5?'triangle':'sine';
+    seq.forEach((n,k)=>note(N[n],k*0.075,0.2,type,0.16));
+    if(Math.random()<0.55) note(N[seq[seq.length-1]]*2,seq.length*0.075,0.12,'sine',0.05);
+  }
+  function streak(){ ['C5','E5','G5','C6','E6','G6'].forEach((n,k)=>note(N[n],k*0.06,0.16,'triangle',0.16)); }
+  function fanfare(){
+    note(N.C5,0,0.18,'triangle',0.14); note(N.E5,0.16,0.18,'triangle',0.14);
+    note(N.G5,0.32,0.2,'triangle',0.15); note(N.C6,0.5,0.45,'triangle',0.18);
+    note(N.E5,0.5,0.45,'sine',0.07); note(N.G5,0.5,0.45,'sine',0.06);
+    note(N.E6,0.62,0.3,'sine',0.05);
+  }
+  function play(name){
+    if(!on)return; init(); if(!ctx)return; resume();
+    switch(name){
+      case 'select': note(330,0,0.06,'sine',0.07); break;
+      case 'click':  note(240,0,0.05,'square',0.05); break;
+      case 'next':   note(420,0,0.05,'sine',0.05,520); break;
+      case 'wrong':  note(300,0,0.15,'sine',0.10,210); note(210,0.07,0.18,'sine',0.09,170); break;
+      case 'correct':correct(); break;
+      case 'streak': streak(); break;
+      case 'sunrise':fanfare(); break;
+    }
+  }
+  function setOn(v){ on=v; if(on){ init(); resume(); } }
+  function isOn(){ return on; }
+  return {play,setOn,isOn,resume};
+})();
+
+/* ---------- praise & encouragement pools (rotated, no immediate repeats) ---------- */
+const PRAISE=['Nailed it!','Brilliant!','Yes! That\'s it!','Spot on!','Superb!','Way to go!','You crushed it!',
+ 'Excellent!','Right again!','Smart thinking!','That\'s the one!','Fantastic!','You\'ve got this!','Beautifully done!',
+ 'Boom! Correct!','Sharp!','Awesome!','Perfect!','Bravo!','High five! ✋','Genius move!','Crushing it!','You rock!',
+ 'Wonderful!','Nice and clean!','Bullseye! 🎯','Outstanding!','So smart!','Terrific!','Slam dunk! 🏀','Top notch!',
+ 'Marvelous!','Cool work!','Dialed in!','Champion! 🏆','Magnificent!','Look at you go!','Sweet!','On the money!','Yes! 🎉'];
+const TRYAGAIN=['Almost!','So close!','Good try!','Nice attempt!','Not quite!','Close one!','Keep going!','Good thinking!'];
+function rotPicker(arr){ let last=-1; return ()=>{ let i; do{i=Math.floor(Math.random()*arr.length);}while(i===last&&arr.length>1); last=i; return arr[i]; }; }
+const nextPraise=rotPicker(PRAISE), nextTry=rotPicker(TRYAGAIN);
+
+/* =========================================================================
+   VISUAL EFFECTS — short, varied, respect reduced-motion
+   ========================================================================= */
+const FX = (()=>{
+  const reduced = ()=> !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches);
+  const EMO=['✨','⭐','🌟','💫','🎉','☀️'];
+  const COLS=['#ff9f1c','#ff6b5e','#0fb5ba','#2ec27e','#ffd166','#7c4dff'];
+  function layer(){ return document.getElementById('fx'); }
+  function add(cls){ const el=document.createElement('div'); el.className='fxitem '+cls; layer().appendChild(el); return el; }
+  function anchor(){
+    const fb=document.getElementById('fb');
+    const r=(fb&&fb.getBoundingClientRect)?fb.getBoundingClientRect():null;
+    if(r&&r.width) return {x:r.left+r.width/2, y:r.top+r.height/2};
+    return {x:(window.innerWidth||360)/2, y:(window.innerHeight||640)/2};
+  }
+  function sparkles(x,y,n){
+    for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, d=24+Math.random()*64;
+      const el=add('spark'); el.textContent=EMO[Math.floor(Math.random()*EMO.length)];
+      el.style.left=x+'px'; el.style.top=y+'px';
+      el.style.setProperty('--dx',(Math.cos(a)*d)+'px'); el.style.setProperty('--dy',(Math.sin(a)*d-18)+'px');
+      setTimeout(()=>el.remove(),950); }
+  }
+  function confetti(x,y,n){
+    for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, d=30+Math.random()*80;
+      const el=add('conf'); el.style.background=COLS[Math.floor(Math.random()*COLS.length)];
+      el.style.left=x+'px'; el.style.top=y+'px';
+      el.style.setProperty('--dx',(Math.cos(a)*d)+'px'); el.style.setProperty('--dy',(Math.sin(a)*d+40)+'px');
+      el.style.setProperty('--rot',(Math.random()*720-360)+'deg');
+      setTimeout(()=>el.remove(),1050); }
+  }
+  function rise(x,y){ const el=add('rise'); el.textContent=pick(['+1 ⭐','✓','★','+1']); el.style.left=x+'px'; el.style.top=y+'px'; setTimeout(()=>el.remove(),1080); }
+  function correct(streak){
+    if(reduced())return;
+    const {x,y}=anchor();
+    if(streak>=5){ confetti(x,y,24); sparkles(x,y,10); return; }
+    const kind=['sparkles','confetti','rise'][Math.floor(Math.random()*3)];
+    if(kind==='sparkles')sparkles(x,y,8); else if(kind==='confetti')confetti(x,y,15); else rise(x,y);
+  }
+  return {correct};
+})();
 
 /* =========================================================================
    MATH GENERATORS
@@ -940,13 +1064,13 @@ let chosenSubj=null, chosenLvl=null;
 document.querySelectorAll('#subjGrid .opt').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('#subjGrid .opt').forEach(b=>b.setAttribute('aria-pressed','false'));
-    btn.setAttribute('aria-pressed','true'); chosenSubj=btn.dataset.subj; refreshStart();
+    btn.setAttribute('aria-pressed','true'); chosenSubj=btn.dataset.subj; Sound.play('select'); refreshStart();
   });
 });
 document.querySelectorAll('#lvlGrid .opt').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('#lvlGrid .opt').forEach(b=>b.setAttribute('aria-pressed','false'));
-    btn.setAttribute('aria-pressed','true'); chosenLvl=btn.dataset.lvl; refreshStart();
+    btn.setAttribute('aria-pressed','true'); chosenLvl=btn.dataset.lvl; Sound.play('select'); refreshStart();
   });
 });
 function refreshStart(){
@@ -954,8 +1078,17 @@ function refreshStart(){
   s.disabled=!ready;
   s.textContent = ready ? 'Start practicing ☀️' : 'Pick a subject & level ↑';
 }
-$('#startBtn').addEventListener('click',startSession);
-$('#backBtn').addEventListener('click',()=>{ $('#play').classList.add('hidden'); $('#home').classList.remove('hidden'); });
+$('#startBtn').addEventListener('click',()=>{ Sound.play('click'); startSession(); });
+$('#backBtn').addEventListener('click',()=>{ Sound.play('click'); $('#play').classList.add('hidden'); $('#home').classList.remove('hidden'); });
+
+/* sound on/off toggle */
+$('#soundBtn').addEventListener('click',()=>{
+  const b=$('#soundBtn'); const turningOn = b.getAttribute('aria-pressed')==='false';
+  Sound.setOn(turningOn);
+  b.setAttribute('aria-pressed', turningOn?'true':'false');
+  b.textContent = turningOn ? '🔊' : '🔇';
+  if(turningOn) Sound.play('select');
+});
 
 function startSession(){
   state.subject=chosenSubj; state.level=chosenLvl; state.base=LEVELMAP[chosenLvl];
@@ -1048,6 +1181,7 @@ function selectChoice(btn,p){
   wrap.querySelectorAll('.choice').forEach(b=>b.classList.remove('pick'));
   btn.classList.add('pick');
   state.selected = p.type==='compare' ? btn.dataset.sym : Number(btn.dataset.i);
+  Sound.play('select');
 }
 
 /* keyboard: number keys pick a choice, Enter checks (set up once) */
@@ -1108,7 +1242,7 @@ function onPrimary(){
     if(isEmptyAnswer(p)){ nudge(p.type==='mc'||p.type==='compare'?'Pick an answer first.':'Type your answer first.'); return; }
     grade(currentCorrect(p));
   } else {
-    if(state.solved>=GOAL) celebrate(); else nextQuestion();
+    if(state.solved>=GOAL) celebrate(); else { Sound.play('next'); nextQuestion(); }
   }
 }
 function nudge(msg){
@@ -1140,19 +1274,24 @@ function grade(ok){
     state.correct++; state.totalStars++; state.streak++;
     if(state.streak>=2) state.boost=clamp01(state.boost+0.12);
     $('#scorePill').textContent=state.totalStars;
-    let head='Nice work!';
-    if(state.streak===3)head='🔥 3 in a row!';
-    else if(state.streak===5)head='⚡ 5 straight — amazing!';
-    else if(state.streak>=7)head=`🌟 ${state.streak} in a row!`;
+    let head, milestone=false;
+    if(state.streak===3){ head='🔥 3 in a row!'; milestone=true; }
+    else if(state.streak===5){ head='⚡ 5 straight — amazing!'; milestone=true; }
+    else if(state.streak>=7){ head=`🌟 ${state.streak} in a row!`; milestone=true; }
+    else { head=nextPraise(); }                 // varied, non-repeating praise
+    const emoji = milestone ? '🎉' : pick(['🎉','🌟','✨','👏','💪','😄','🙌','⭐']);
     fb.className='fb ok show';
-    fb.innerHTML=`<span class="fic">🎉</span><span>${head}<span class="ex">${p.explain}</span></span>`;
+    fb.innerHTML=`<span class="fic">${emoji}</span><span>${head}<span class="ex">${p.explain}</span></span>`;
     c.classList.remove('shake'); void c.offsetWidth; c.classList.add('pop'); setTimeout(()=>c.classList.remove('pop'),360);
+    Sound.play(milestone?'streak':'correct');
+    FX.correct(state.streak);
   } else {
     state.streak=0; state.boost=clamp01(state.boost-0.2);
     fb.className='fb no show';
-    fb.innerHTML=`<span class="fic">💡</span><span>Almost — here's the trick:<span class="ex">${p.explain}</span></span>`;
+    fb.innerHTML=`<span class="fic">💡</span><span>${nextTry()} Here's the trick:<span class="ex">${p.explain}</span></span>`;
     state.missedQueue.push({gen:p.genObj, subj:p.subj});
     c.classList.remove('pop'); void c.offsetWidth; c.classList.add('shake'); setTimeout(()=>c.classList.remove('shake'),440);
+    Sound.play('wrong');
   }
   state.solved++;
   drawSky(Math.min(state.solved,GOAL)/GOAL);
@@ -1217,10 +1356,13 @@ function celebrate(){
       </div>
     </div>`;
   confetti();
+  Sound.play('sunrise');
   $('#again').addEventListener('click',()=>{
+    Sound.play('click');
     state.solved=0; state.correct=0; drawSky(0); nextQuestion();
   });
   $('#switch').addEventListener('click',()=>{
+    Sound.play('click');
     $('#play').classList.add('hidden'); $('#home').classList.remove('hidden');
   });
 }
