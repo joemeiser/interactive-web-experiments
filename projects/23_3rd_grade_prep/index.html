@@ -86,8 +86,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .fineprint{text-align:center;color:#c9d4ee;font-size:.82rem;font-weight:700;margin-top:2px}
 
 /* ---------- play / build ---------- */
-.world{position:relative;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);border:3px solid #ffffff14}
-.world svg{display:block;width:100%;height:170px}
+.world{position:relative;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);border:3px solid #ffffff14;aspect-ratio:240 / 190;max-height:46vh}
+.world svg{display:block;width:100%;height:100%}
 .hud{display:flex;align-items:center;gap:9px;margin:2px 0}
 .hud .back{font-family:"Baloo 2";font-weight:800;font-size:.9rem;color:#22304d;background:#ffffffd8;border-bottom:4px solid #c7ccbf;padding:8px 13px;border-radius:9px}
 .hud .back:active{transform:translateY(1px);border-bottom-width:2px}
@@ -103,6 +103,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .prompt .passage{font-size:1rem;font-weight:700;color:var(--ink);background:var(--paper2);border-left:5px solid var(--emerald);padding:12px 14px;border-radius:8px;margin-bottom:13px;line-height:1.5}
 .prompt .passage .ptitle{font-family:"Baloo 2";font-weight:800;display:block;margin-bottom:4px}
 .prompt .q{font-size:1.18rem}
+.prompt b,.prompt strong{font-weight:800;color:var(--redstone-d);background:var(--redstone-soft);padding:0 5px;border-radius:5px}
+.prompt .passage b,.prompt .passage strong{background:none;color:var(--redstone-d)}
 .eq{font-family:"Baloo 2";font-weight:800}
 .row-blocks{font-size:1.5rem;letter-spacing:2px;display:block;margin:6px 0}
 .nl{display:block;margin:8px 0 2px}
@@ -178,7 +180,6 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
   .subj-grid{grid-template-columns:1fr}
   .prompt{font-size:1.18rem}
   .hero h1{font-size:1.6rem}
-  .world svg{height:150px}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms !important;transition-duration:.001ms !important}
@@ -557,15 +558,24 @@ const MATH = [
 
 {id:'cmpfrac', name:'Compare Fractions', gen(d,b){
   let a,b1,c,e;
-  if(d===1){ const den=pick([3,4,5,6,8]); a=R(1,den-1); b1=den; do{c=R(1,den-1);}while(c===a); e=den; } // same denom
-  else if(d===2){ const num=pick([1,2,3]); a=num; c=num; b1=pick([2,3,4,6,8]); do{e=pick([2,3,4,6,8]);}while(e===b1); } // same numerator
-  else { b1=pick([2,3,4,6,8]); e=pick([2,3,4,6,8]); a=R(1,b1-1); c=R(1,e-1); } // unlike (G4)
-  const ans=ordToCmp(a/b1,c/e);
-  return {type:'compare',choices:['<','=','>'],answer:ans,
-    prompt:`Compare:<br>${frac(a,b1)} <span style="opacity:.4">?</span> ${frac(c,e)}`,
-    explain: b1===e ? `Same bottom number — compare tops: ${a} ${ans} ${c}.`
-      : a===c ? `Same top number — the bigger bottom makes a smaller piece. ${frac(a,b1)} ${ans} ${frac(c,e)}.`
-      : `As amounts, ${frac(a,b1)} ≈ ${(a/b1).toFixed(2)} and ${frac(c,e)} ≈ ${(c/e).toFixed(2)}.`};
+  for(let guard=0; guard<50; guard++){
+    if(d===1){ const den=pick([3,4,5,6,8]); a=R(1,den-1); b1=den; do{c=R(1,den-1);}while(c===a); e=den; } // same denom
+    else if(d===2){ const num=pick([1,2,3]); a=num; c=num; b1=pick([2,3,4,6,8]); do{e=pick([2,3,4,6,8]);}while(e===b1); } // same numerator
+    else { b1=pick([2,3,4,6,8]); e=pick([2,3,4,6,8]); a=R(1,b1-1); c=R(1,e-1); } // unlike (G4 preview)
+    // unlike-denominator pairs can be equal in value (e.g. 1/2 = 2/4); skip those so
+    // "which is larger" always has one clearly-larger fraction for the child.
+    if(d===3 && a*e===c*b1) continue;
+    break;
+  }
+  // integer cross-multiply (no floating point): a/b1 ? c/e  <=>  a*e ? c*b1
+  const L=a*e, Rr=c*b1; const sym = L>Rr?'>':L<Rr?'<':'=';
+  const choices=['<','=','>']; const idx=choices.indexOf(sym);
+  const word = sym==='>'?'greater than':sym==='<'?'less than':'equal to';
+  return {type:'compare', choices, answer:idx,
+    prompt:`Which is bigger? Tap the right sign.<br>${frac(a,b1)} <span style="opacity:.4">?</span> ${frac(c,e)}`,
+    explain: b1===e ? `Same bottom number, so compare the tops: ${a} is ${word} ${c}.`
+      : a===c ? `Same top number — the bigger the bottom, the smaller each piece. So the first fraction is ${word} the second.`
+      : `Cross-multiply: ${a}×${e} = ${L} and ${c}×${b1} = ${Rr}. Since ${L} is ${word.replace(' to','')} ${Rr}, the first fraction is ${word} the second.`};
 }},
 
 {id:'elapsed', name:'Time', gen(d,b){
@@ -669,7 +679,7 @@ const ELA = [
     ['Would you like a sword ___ a shield?','or'],
     ['Alex packed torches ___ a pickaxe.','and'],
     ['She tried hard, ___ she still felt nervous.','but'],
-    ['We can mine for gold ___ farm wheat.','or'],
+    ['Do you want to mine first ___ build first?','or'],
     ['The wolf barked ___ wagged its tail.','and'],
     ['We hurried home ___ it started to storm.','because'],
     ['He stayed inside ___ it was raining.','because'],
@@ -1083,8 +1093,9 @@ function renderQuestion(p){
     answersHTML=`<div class="answers mc" id="answers">`+
       p.choices.map((ch,i)=>`<button class="choice" data-i="${i}"><span class="key">${i+1}</span><span>${ch}</span></button>`).join('')+`</div>`;
   } else if(p.type==='compare'){
+    const esc={'<':'&lt;','>':'&gt;','=':'='};
     answersHTML=`<div class="answers cmp" id="answers">`+
-      p.choices.map((ch,i)=>`<button class="choice" data-i="${i}" data-sym="${ch}">${ch}</button>`).join('')+`</div>`;
+      p.choices.map((ch,i)=>`<button class="choice" data-i="${i}" aria-label="${ch==='<'?'less than':ch==='>'?'greater than':'equal to'}">${esc[ch]||ch}</button>`).join('')+`</div>`;
   } else if(p.type==='qr'){
     answersHTML=`<div class="qr"><input id="qq" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="?" aria-label="quotient"><span class="rlabel">R</span><input id="rr" class="boxnum" inputmode="numeric" autocomplete="off" placeholder="?" aria-label="remainder"></div><div class="hint">Answer, then the <b>R</b>emainder (the leftover).</div>`;
   } else if(p.inputKind==='frac'){
@@ -1113,7 +1124,7 @@ function selectChoice(btn,p){
   const wrap=$('#answers'); if(!wrap)return;
   wrap.querySelectorAll('.choice').forEach(b=>b.classList.remove('pick'));
   btn.classList.add('pick');
-  state.selected = p.type==='compare' ? btn.dataset.sym : Number(btn.dataset.i);
+  state.selected = Number(btn.dataset.i);
 }
 window.addEventListener('keydown',e=>{
   if($('#play').classList.contains('hidden'))return;
@@ -1182,7 +1193,7 @@ function grade(ok){
     $('#answers').querySelectorAll('.choice').forEach(btn=>{
       btn.disabled=true; const i=Number(btn.dataset.i);
       if(i===p.answer)btn.classList.add('correct');
-      else if((p.type==='compare'?btn.dataset.sym:i)===state.selected)btn.classList.add('wrong');
+      else if(i===state.selected)btn.classList.add('wrong');
     });
   } else if(p.type==='qr'){
     $('#qq').disabled=true; $('#rr').disabled=true;
@@ -1233,7 +1244,7 @@ const MATERIALS=[ // bottom -> top, paired by row
 ];
 function drawBuild(p){
   const placed=Math.round(p*GOAL);
-  const W=240,H=170, groundY=150, bw=44, bh=24, gap=4;
+  const W=240,H=190, groundY=168, bw=44, bh=23, gap=4;
   const totalW=2*bw+6, startX=(W-totalW)/2;
   // sky brightens from night to day as it rises
   const sky=[blend('#1a2238','#5fa8e0',p), blend('#2a3a5c','#bfe2f4',p)];
@@ -1254,10 +1265,10 @@ function drawBuild(p){
       <polygon points="${fx},${fy-26} ${fx+22},${fy-20} ${fx},${fy-14}" fill="#e5433a"/>`;
   }
   $('#world').innerHTML=`
-  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Build progress: ${placed} of ${GOAL} blocks placed">
+  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Build progress: ${placed} of ${GOAL} blocks placed">
     <defs><linearGradient id="bsky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs>
-    <rect width="${W}" height="${H}" fill="url(#bsky)"/>
+    <rect x="-20" y="-20" width="${W+40}" height="${H+40}" fill="url(#bsky)"/>
     <rect x="0" y="${groundY}" width="${W}" height="${H-groundY}" fill="#3f8a22"/>
     <rect x="0" y="${groundY}" width="${W}" height="6" fill="#5fae3a"/>
     <rect x="0" y="${groundY+6}" width="${W}" height="${H-groundY-6}" fill="#7a5733"/>
