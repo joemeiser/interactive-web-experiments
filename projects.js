@@ -23,4 +23,5 @@ const PROJECTS = [
   { folder: "21_spelling_quest", title: "Spelling Quest", thumb: "thumbnail.jpg" },
   { folder: "22_5th_grade_prep", title: "5Th Grade Prep", thumb: "sunward_thumbnail.jpg" },
   { folder: "23_3rd_grade_prep", title: "3Rd Grade Prep", thumb: "blockrise_thumb.jpg" },
+  { folder: "24_simple_retirement_projections", title: "Simple Retirement Projections", thumb: "retirement_thumbnail.jpg" },
 ];
