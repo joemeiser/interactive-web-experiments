@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" />
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
 
   <style>
     :root {
@@ -18,7 +18,7 @@
       --ink: #1a1a1a;
       --ink-muted: #6b6b6b;
       --ink-faint: #9a9a9a;
-      --rule: #ececea;
+      --rule: #d8d8d5;
       --placeholder: #ededea;
       --shadow-rest: 0 1px 2px rgba(20, 20, 20, 0.04);
       --shadow-hover: 0 12px 28px rgba(20, 20, 20, 0.10), 0 2px 6px rgba(20, 20, 20, 0.05);
@@ -75,16 +75,26 @@
       margin: 0;
     }
 
-    .site-note {
-      font-size: 12px;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-      color: var(--ink-faint);
-      text-transform: uppercase;
-      white-space: nowrap;
+    main { flex: 1 0 auto; }
+
+    .gallery-section:not(:last-child) {
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--rule);
     }
 
-    main { flex: 1 0 auto; }
+    .gallery-section + .gallery-section {
+      margin-top: 40px;
+    }
+
+    .section-title {
+      font-family: var(--font-sans);
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink);
+      margin: 0 0 40px;
+    }
 
     .grid {
       display: grid;
@@ -176,6 +186,8 @@
     @media (max-width: 900px) {
       .page { padding: 48px 32px 32px; }
       header.site-header { margin-bottom: 40px; }
+      .gallery-section:not(:last-child) { padding-bottom: 32px; }
+      .gallery-section + .gallery-section { margin-top: 32px; }
       .grid { grid-template-columns: repeat(2, 1fr); gap: 28px 24px; }
     }
 
@@ -187,6 +199,9 @@
         gap: 10px;
         margin-bottom: 32px;
       }
+      .gallery-section:not(:last-child) { padding-bottom: 24px; }
+      .gallery-section + .gallery-section { margin-top: 24px; }
+      .section-title { margin-bottom: 32px; }
       .grid { grid-template-columns: 1fr; gap: 28px; }
       footer.site-footer { padding: 32px 20px 28px; }
     }
@@ -196,62 +211,84 @@
   <div class="page">
     <header class="site-header">
       <h1 class="site-title">Interactive Web Experiments</h1>
-      <span class="site-note">Best viewed on desktop</span>
     </header>
 
     <main>
-      <div class="grid" id="grid" role="list"></div>
+      <div id="sections"></div>
     </main>
   </div>
 
   <footer class="site-footer">
-    <p>All web experiments created by Joe Meiser.</p>
+    <p>All projects created by Joe Meiser.</p>
   </footer>
 
   <script src="projects.js"></script>
   <script>
     (function () {
-      var grid = document.getElementById("grid");
-      if (!grid || typeof PROJECTS === "undefined" || !Array.isArray(PROJECTS)) return;
+      var host = document.getElementById("sections");
+      if (!host) return;
+      if (typeof SECTIONS === "undefined" || !Array.isArray(SECTIONS)) return;
 
       var frag = document.createDocumentFragment();
 
-      PROJECTS.forEach(function (p) {
-        var a = document.createElement("a");
-        a.className = "tile";
-        a.href = "projects/" + p.folder + "/index.html";
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.setAttribute("role", "listitem");
-        a.setAttribute("aria-label", p.title);
+      SECTIONS.forEach(function (s, idx) {
+        if (!s || !Array.isArray(s.projects) || s.projects.length === 0) return;
 
-        var frame = document.createElement("div");
-        frame.className = "tile-frame";
+        var sec = document.createElement("section");
+        sec.className = "gallery-section";
+        var headingId = "sec-" + (s.folder || ("idx-" + idx));
+        sec.setAttribute("aria-labelledby", headingId);
 
-        if (p.thumb) {
-          var img = document.createElement("img");
-          img.src = "projects/" + p.folder + "/" + p.thumb;
-          img.alt = p.title;
-          img.loading = "lazy";
-          img.decoding = "async";
-          frame.appendChild(img);
-        } else {
-          var ph = document.createElement("div");
-          ph.className = "tile-placeholder";
-          ph.textContent = p.title;
-          frame.appendChild(ph);
-        }
+        var h = document.createElement("h2");
+        h.className = "section-title";
+        h.id = headingId;
+        h.textContent = s.title || "";
+        sec.appendChild(h);
 
-        var title = document.createElement("p");
-        title.className = "tile-title";
-        title.textContent = p.title;
+        var grid = document.createElement("div");
+        grid.className = "grid";
+        grid.setAttribute("role", "list");
 
-        a.appendChild(frame);
-        a.appendChild(title);
-        frag.appendChild(a);
+        s.projects.forEach(function (p) {
+          var a = document.createElement("a");
+          a.className = "tile";
+          a.href = "projects/" + s.folder + "/" + p.folder + "/index.html";
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.setAttribute("role", "listitem");
+          a.setAttribute("aria-label", p.title);
+
+          var frame = document.createElement("div");
+          frame.className = "tile-frame";
+
+          if (p.thumb) {
+            var img = document.createElement("img");
+            img.src = "projects/" + s.folder + "/" + p.folder + "/" + p.thumb;
+            img.alt = p.title;
+            img.loading = "lazy";
+            img.decoding = "async";
+            frame.appendChild(img);
+          } else {
+            var ph = document.createElement("div");
+            ph.className = "tile-placeholder";
+            ph.textContent = p.title;
+            frame.appendChild(ph);
+          }
+
+          var title = document.createElement("p");
+          title.className = "tile-title";
+          title.textContent = p.title;
+
+          a.appendChild(frame);
+          a.appendChild(title);
+          grid.appendChild(a);
+        });
+
+        sec.appendChild(grid);
+        frag.appendChild(sec);
       });
 
-      grid.appendChild(frag);
+      host.appendChild(frag);
     })();
   </script>
 </body>
