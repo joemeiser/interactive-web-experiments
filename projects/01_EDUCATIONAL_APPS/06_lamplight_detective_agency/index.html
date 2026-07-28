@@ -1,0 +1,2332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Lamplight Detective Agency</title>
+<style>
+:root{
+  --night:#0a1417; --fog:#1c3037;
+  --paper:#e9e1cd; --paper-2:#d8ceb4;
+  --ink:#221f18; --ink-soft:#5c564a;
+  --lamp:#f0bd55; --lamp-dim:#8a6a2c;
+  --good:#4e8f5f; --bad:#a8443b; --stamp:#8e2b24;
+  --mono:"Courier New",Courier,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{background:var(--night);color:var(--paper);font-family:var(--sans);
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+#bg{position:fixed;inset:0;z-index:0;display:block}
+#app{position:relative;z-index:1;max-width:560px;margin:0 auto;
+  padding:calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 30px);min-height:100%}
+.screen{display:none;animation:fade .3s ease both}
+.screen.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--lamp-dim);margin:0 0 6px}
+h1{font-family:var(--mono);font-weight:700;font-size:clamp(23px,7vw,32px);letter-spacing:.1em;
+  text-transform:uppercase;margin:0 0 6px;line-height:1.12}
+.sub{font-size:15px;color:#a3b3b8;margin:0 0 20px;line-height:1.5}
+
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.btn{display:block;width:100%;min-height:54px;background:var(--paper);color:var(--ink);
+  font-family:var(--mono);font-size:14px;letter-spacing:.14em;text-transform:uppercase;
+  border-radius:3px;padding:14px;margin:10px 0;
+  box-shadow:0 2px 0 var(--paper-2),0 10px 28px rgba(0,0,0,.5);transition:transform .12s}
+.btn:active{transform:translateY(2px)}
+.btn.ghost{background:none;color:var(--paper);border:1px solid #33484f;box-shadow:none}
+.btn.small{min-height:46px;font-size:12px;margin:0}
+.btn[disabled]{opacity:.35;pointer-events:none}
+.row{display:flex;gap:8px}.row>*{flex:1}
+
+.topbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.topbar .back{font-family:var(--mono);font-size:12px;letter-spacing:.12em;color:#8ea0a6;
+  padding:14px 14px 14px 0;text-transform:uppercase;min-height:46px}
+.topbar .who{margin-left:auto;margin-right:30px;font-family:var(--mono);font-size:11px;
+  color:var(--lamp-dim);letter-spacing:.08em}
+
+/* case files on the board */
+.file{position:relative;background:var(--paper);color:var(--ink);border-radius:3px;
+  padding:15px 15px 16px;margin:0 0 11px;box-shadow:0 2px 0 var(--paper-2),0 12px 30px rgba(0,0,0,.5)}
+.file .tag{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:#8a7f68;margin:0 0 5px}
+.file .name{font-family:var(--mono);font-size:17px;font-weight:700;margin:0 0 4px}
+.file .desc{font-size:13px;color:var(--ink-soft);line-height:1.45;margin:0}
+.file .solved{position:absolute;right:9px;top:8px;font-family:var(--mono);font-size:10px;
+  color:var(--stamp);border:2px solid var(--stamp);border-radius:3px;padding:3px 6px;transform:rotate(-8deg)}
+.filebtn{display:block;width:100%;text-align:left;padding:0;margin:0 0 11px}
+.boardhead{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--lamp-dim);margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid #24393f}
+.boardhead:first-child{margin-top:0}
+
+#sceneWrap{position:relative;border-radius:3px;overflow:hidden;margin-bottom:12px;
+  background:#0a161a;border:1px solid #21363c}
+#scene{display:block;margin:0 auto}
+
+/* the how-to strip */
+.howto{background:#12262c;border-left:3px solid var(--lamp);border-radius:2px;
+  padding:11px 13px;margin:0 0 14px;font-size:14px;line-height:1.5;color:#c3d0d4}
+.howto b{color:var(--lamp);font-weight:600}
+
+/* clue cards, now with words */
+.cluelist{margin:0 0 18px}
+.clue{display:flex;align-items:center;gap:10px;background:var(--paper);color:var(--ink);
+  border-radius:3px;padding:9px 11px;margin:0 0 7px;font-size:14.5px;line-height:1.35;
+  box-shadow:0 2px 0 var(--paper-2);border-left:5px solid #b6ab90;transition:border-color .2s}
+.clue.ok{border-left-color:var(--good)}
+.clue.no{border-left-color:var(--bad);background:#f2ddd9}
+.clue .mark{font-family:var(--mono);font-size:17px;width:18px;flex:none;text-align:center;color:#a79c84}
+.clue.ok .mark{color:var(--good)}
+.clue.no .mark{color:var(--bad)}
+.clue .txt{flex:1}
+.clue .txt b{font-weight:700}
+.clue.sealed{border-left-color:#8a7f68;background:#ded4bb;cursor:pointer}
+.clue.sealed .txt{color:#6b6252;font-style:italic}
+.clue.accuse{cursor:pointer}
+.clue.accused{border-left-color:var(--stamp);background:#f0d9d5}
+.clue.accused .txt{text-decoration:line-through;opacity:.75}
+.clue .flag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--stamp);
+  border:1px solid var(--stamp);border-radius:3px;padding:2px 5px;flex:none;margin-left:6px}
+.pick{display:block;width:100%;text-align:left;background:var(--paper);color:var(--ink);
+  border-radius:3px;padding:11px 13px;margin:0 0 8px;font-size:14.5px;line-height:1.35;
+  box-shadow:0 2px 0 var(--paper-2);border-left:5px solid var(--lamp)}
+.pick.spent{opacity:.45;border-left-color:#b6ab90}
+.pick canvas{vertical-align:-6px;margin:0 1px}
+.pick b{font-weight:700}
+.tally{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--lamp);
+  text-transform:uppercase;margin:0 0 12px}
+.tally.good{color:var(--good)}
+.clue canvas{vertical-align:-6px;margin:0 1px}
+
+/* rooms */
+.roomlist{margin:0 0 16px}
+.room{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:#12262c;border:1px solid #2a4148;border-radius:3px;padding:8px 10px;margin:0 0 8px;
+  min-height:64px;transition:border-color .15s,background .15s}
+.room.hot{border-color:var(--lamp);background:#1a3138}
+.room .rlabel{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:#7f9298;
+  width:56px;flex:none;text-transform:uppercase}
+.room .slot{flex:1;display:flex;align-items:center;gap:8px;min-height:48px}
+.room .empty{font-size:13px;color:#5c7178;font-style:italic}
+.tray{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;min-height:56px}
+.traylabel{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:#7f9298;margin:0 0 8px}
+.chip{background:var(--paper);border-radius:3px;padding:5px 9px 4px;display:flex;align-items:center;gap:7px;
+  color:var(--ink);font-size:13.5px;font-weight:600;box-shadow:0 2px 0 var(--paper-2);
+  min-height:46px;transition:transform .12s,box-shadow .12s}
+.chip:active{transform:translateY(2px)}
+.chip.sel{outline:3px solid var(--lamp);outline-offset:2px}
+.chip canvas{display:block}
+
+/* rule mode */
+.cards{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 0 16px}
+.card{font:inherit;border:none;background:var(--paper);border-radius:3px;padding:7px;position:relative;
+  box-shadow:0 2px 0 var(--paper-2),0 8px 18px rgba(0,0,0,.4)}
+.card canvas{display:block}
+.card.acc{outline:3px solid var(--good)}
+.card.rej{outline:3px solid var(--bad);opacity:.6}
+.verdict{position:absolute;right:-7px;top:-8px;font-family:var(--mono);font-size:15px;width:25px;height:25px;
+  border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--paper)}
+.verdict.y{background:var(--good)}.verdict.n{background:var(--bad)}
+.counter{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--lamp-dim);
+  text-transform:uppercase;margin:0 0 9px}
+
+#miniStage{position:relative;border-radius:3px;overflow:hidden;margin-bottom:12px;
+  background:#0a161a;border:1px solid #21363c}
+#miniCanvas{display:block;margin:0 auto}
+.say{background:#12262c;border-left:3px solid var(--lamp);border-radius:2px;padding:10px 12px;
+  margin:0 0 12px;font-size:14.5px;line-height:1.45;color:#d5c39a;font-style:italic}
+.say b{font-style:normal;color:var(--lamp);font-weight:600}
+.pips{display:flex;gap:6px;justify-content:center;margin:0 0 12px}
+.pip{width:14px;height:14px;border-radius:50%;border:2px solid #46616a}
+.pip.on{background:var(--lamp);border-color:var(--lamp)}
+#result{text-align:center}
+#resultCanvas{display:block;border-radius:3px;border:1px solid #21363c;margin:0 auto 14px}
+.stamp{display:inline-block;font-family:var(--mono);font-size:21px;letter-spacing:.18em;color:var(--stamp);
+  border:4px double var(--stamp);border-radius:4px;padding:8px 15px;transform:rotate(-7deg) scale(2.2);
+  opacity:0;margin:4px 0 16px;animation:slam .45s cubic-bezier(.2,1.4,.4,1) .3s forwards}
+@keyframes slam{to{transform:rotate(-7deg) scale(1);opacity:1}}
+
+#modal{position:fixed;inset:0;z-index:5;background:rgba(4,10,12,.88);display:none;
+  align-items:center;justify-content:center;padding:18px}
+#modal.on{display:flex}
+#modalBox{background:var(--paper);color:var(--ink);border-radius:3px;padding:18px;max-width:410px;
+  width:100%;max-height:82vh;overflow:auto}
+#modalBox h2{font-family:var(--mono);font-size:15px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 12px}
+#modalBox p{font-size:14px;line-height:1.55;margin:0 0 11px}
+#modalBox p b{font-weight:700}
+input.nameinput{width:100%;font-family:var(--mono);font-size:16px;padding:12px;background:#efe9d9;
+  border:1px solid #c9bda3;color:var(--ink);border-radius:3px}
+.mutebtn{position:fixed;right:8px;top:calc(env(safe-area-inset-top) + 10px);z-index:4;
+  font-family:var(--mono);font-size:16px;color:#5c7178;padding:8px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<button class="mutebtn" id="mute" aria-label="Sound on or off">♪</button>
+<div id="app">
+
+  <section class="screen on" id="s-title">
+    <div id="titleArtWrap"><canvas id="titleArt"></canvas></div>
+    <p class="eyebrow">Est. after dark</p>
+    <h1>Lamplight<br>Detective Agency</h1>
+    <p class="sub">Nobody tells you the answer here. You work it out.</p>
+    <div id="profileList"></div>
+  </section>
+
+  <section class="screen" id="s-board">
+    <div class="topbar"><button class="back" id="boardBack">&lt; Switch detective</button>
+      <span class="who" id="whoLabel"></span></div>
+    <p class="eyebrow">Open cases</p>
+    <h1 style="font-size:21px">The Board</h1>
+    <p class="sub">Start at the top. Old cases stay open — play any of them again whenever you like.</p>
+    <div id="caseList"></div>
+  </section>
+
+  <section class="screen" id="s-case">
+    <div class="topbar"><button class="back" id="caseBack">&lt; The board</button>
+      <span class="who" id="caseTier"></span></div>
+    <div id="sceneWrap"><canvas id="scene"></canvas></div>
+    <div class="howto" id="howto"></div>
+    <div class="cluelist" id="clueList"></div>
+    <div id="extra"></div>
+    <div class="roomlist" id="roomList"></div>
+    <p class="traylabel" id="trayLabel">Waiting on the street</p>
+    <div class="tray" id="tray"></div>
+    <div id="itemTrayWrap" style="display:none">
+      <p class="traylabel">Things found in the house</p>
+      <div class="tray" id="itemTray"></div>
+    </div>
+    <div class="row">
+      <button class="btn ghost small" id="helpBtn">How do I play?</button>
+      <button class="btn ghost small" id="resetBtn">Start over</button>
+    </div>
+  </section>
+
+  <section class="screen" id="s-rule">
+    <div class="topbar"><button class="back" id="ruleBack">&lt; The board</button>
+      <span class="who" id="ruleTier"></span></div>
+    <p class="eyebrow" id="rulePhase"></p>
+    <h1 style="font-size:20px">The Sorting Machine</h1>
+    <div class="howto" id="ruleHelp"></div>
+    <div id="ruleKnown"></div>
+    <div id="ruleBody"></div>
+  </section>
+
+  <section class="screen" id="s-mini">
+    <div class="topbar"><button class="back" id="miniBack">&lt; The board</button>
+      <span class="who" id="miniTitle"></span></div>
+    <div id="miniStage"><canvas id="miniCanvas"></canvas></div>
+    <div class="howto" id="miniHow"></div>
+    <p class="tally" id="miniStatus"></p>
+    <div id="miniBody"></div>
+    <button class="btn ghost small" id="miniHelp" style="margin-top:10px">How do I play?</button>
+  </section>
+
+  <section class="screen" id="s-result">
+    <div id="result">
+      <canvas id="resultCanvas"></canvas>
+      <div class="stamp" id="stampText">CLOSED</div>
+      <p class="sub" id="resultText" style="text-align:center"></p>
+      <button class="btn" id="againBtn">Another case</button>
+      <button class="btn ghost" id="resultBack">The board</button>
+    </div>
+  </section>
+</div>
+<div id="modal"><div id="modalBox"></div></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const rnd = (n) => Math.floor(Math.random() * n);
+const pick = (a) => a[rnd(a.length)];
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];} return a; }
+const REDUCE = window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+const DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+const MONO = '"Courier New",Courier,monospace';
+const mono = (px,w) => (w?w+" ":"")+px+"px "+MONO;
+function fitCanvas(cv, w, h){
+  cv.width = Math.round(w*DPR); cv.height = Math.round(h*DPR);
+  cv.style.width = w+"px"; cv.style.height = h+"px";
+  const c = cv.getContext("2d"); c.setTransform(DPR,0,0,DPR,0,0); return c;
+}
+
+/* ------------------------------ sound ------------------------------ */
+const Snd = (()=>{
+  let ac=null, on=true;
+  function ctx(){ if(!ac) ac = new (window.AudioContext||window.webkitAudioContext)(); if(ac.state==="suspended") ac.resume(); return ac; }
+  function tone(freq, dur, type, vol, slideTo){
+    if(!on) return; const a=ctx(), t=a.currentTime;
+    const o=a.createOscillator(), g=a.createGain();
+    o.type=type||"sine"; o.frequency.setValueAtTime(freq,t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(vol||.12,t+.008);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+.02);
+  }
+  function noise(dur, vol, freq){
+    if(!on) return; const a=ctx(), t=a.currentTime;
+    const n=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const s=a.createBufferSource(); s.buffer=buf;
+    const f=a.createBiquadFilter(); f.type="lowpass"; f.frequency.value=freq||1200;
+    const g=a.createGain(); g.gain.value=vol||.15;
+    s.connect(f).connect(g).connect(a.destination); s.start(t);
+  }
+  return {
+    tap(){ tone(520,.05,"square",.05); },
+    cross(){ noise(.06,.09,900); },
+    dot(){ tone(660,.12,"triangle",.09,880); },
+    undo(){ tone(300,.09,"sine",.07,220); },
+    yes(){ tone(523,.12,"triangle",.09); setTimeout(()=>tone(784,.22,"triangle",.09),110); },
+    no(){ tone(180,.22,"sawtooth",.06,120); },
+    stamp(){ noise(.14,.28,320); tone(90,.28,"sine",.16,60); },
+    open(){ tone(220,.2,"sine",.06,330); },
+    set(v){ on=v; },
+    get on(){ return on; }
+  };
+})();
+
+/* ------------------------------ the cast ------------------------------ */
+/* Silhouettes composed from primitives — species differ by ear, snout,
+   tail and body ratio. Drawn as one dark shape with a lamp-side rim. */
+const CAST = [
+  {id:"fox",    name:"Vesper",  ear:"point", earH:.40, head:1.00, snout:.26, tail:"brush", body:1.00, col:"#7a2f1a"},
+  {id:"badger", name:"Mo",      ear:"round", earH:.13, head:.90,  snout:.20, tail:"stub",  body:1.30, col:"#2e3a44"},
+  {id:"owl",    name:"Quill",   ear:"tuft",  earH:.26, head:1.40, snout:.09, tail:"none",  body:.86,  col:"#5e4413"},
+  {id:"hare",   name:"Juniper", ear:"long",  earH:.90, head:.92,  snout:.14, tail:"puff",  body:.80,  col:"#5a3060"},
+  {id:"crow",   name:"Sable",   ear:"none",  earH:0,   head:.80,  snout:.40, tail:"fan",   body:.84,  col:"#16202b"},
+  {id:"mole",   name:"Pim",     ear:"none",  earH:0,   head:.95,  snout:.46, tail:"stub",  body:1.14, col:"#3c4a2a"}
+];
+
+function drawAnimal(c, ch, x, y, s, t, opts){
+  opts = opts || {};
+  const lit = opts.lit !== false;
+  const blink = opts.blink !== false;
+  if(REDUCE) t = 0;
+  const breathe = Math.sin((t||0)/700 + x) * .012 * s;
+  c.save();
+  c.translate(x, y + breathe*8);
+  const bodyW = s*.62*ch.body, bodyH = s*.66;
+  const headR = s*.25*(ch.head||1);
+  const headY = -bodyH - headR*.55;
+
+  c.fillStyle = opts.ink || (lit ? "#04090b" : "#0b171b");
+  c.beginPath();
+  // tail
+  if(ch.tail!=="none"){
+    const tw = ch.tail==="brush"? s*.34 : ch.tail==="fan"? s*.30 : ch.tail==="puff"? s*.16 : s*.13;
+    const th = ch.tail==="brush"? s*.20 : s*.16;
+    c.moveTo(-bodyW*.42, -bodyH*.55);
+    c.quadraticCurveTo(-bodyW*.5-tw, -bodyH*.95, -bodyW*.3-tw*.5, -bodyH*.15);
+    c.quadraticCurveTo(-bodyW*.5, -bodyH*.2, -bodyW*.42, -bodyH*.55);
+  }
+  c.closePath(); c.fill();
+
+  // body blob
+  c.beginPath();
+  c.moveTo(-bodyW*.5, 0);
+  c.quadraticCurveTo(-bodyW*.62, -bodyH*.75, -bodyW*.18, -bodyH*.95);
+  c.quadraticCurveTo( bodyW*.30, -bodyH*1.05, bodyW*.46, -bodyH*.55);
+  c.quadraticCurveTo( bodyW*.60, -bodyH*.08, bodyW*.44, 0);
+  c.closePath(); c.fill();
+
+  // head
+  c.beginPath(); c.arc(bodyW*.20, headY, headR, 0, 7); c.fill();
+  // snout
+  if(ch.snout>0){
+    c.beginPath();
+    c.moveTo(bodyW*.20+headR*.4, headY-headR*.18);
+    c.lineTo(bodyW*.20+headR*.4 + s*ch.snout, headY+headR*.10);
+    c.lineTo(bodyW*.20+headR*.35, headY+headR*.55);
+    c.closePath(); c.fill();
+  }
+  // ears
+  const ex = bodyW*.20, ey = headY-headR*.55;
+  if(ch.ear==="point"||ch.ear==="tuft"||ch.ear==="long"){
+    const h = s*ch.earH, w = ch.ear==="long"? s*.10 : s*.16;
+    [-1,1].forEach(d=>{
+      c.beginPath();
+      c.moveTo(ex + d*headR*.55 - w/2, ey+headR*.28);
+      c.quadraticCurveTo(ex + d*headR*.62, ey-h, ex + d*headR*.55 + w/2, ey+headR*.30);
+      c.closePath(); c.fill();
+    });
+  } else if(ch.ear==="round"){
+    [-1,1].forEach(d=>{ c.beginPath(); c.arc(ex + d*headR*.72, ey+headR*.10, s*ch.earH, 0, 7); c.fill(); });
+  }
+
+  // lamp-side rim light
+  if(lit){
+    c.strokeStyle="rgba(240,189,85,.55)"; c.lineWidth=Math.max(1, s*.018);
+    c.beginPath();
+    c.arc(bodyW*.20, headY, headR, -1.35, .35);
+    c.stroke();
+    c.beginPath();
+    c.moveTo(bodyW*.46, -bodyH*.55);
+    c.quadraticCurveTo(bodyW*.60, -bodyH*.08, bodyW*.44, 0);
+    c.stroke();
+  }
+  // eyes
+  const openAmt = blink ? (Math.sin((t||0)/1000 + ch.body*9) > .985 ? .12 : 1) : 1;
+  const er = s*.030;
+  c.fillStyle="#f7d68a";
+  [-.38,.34].forEach((d,i)=>{
+    c.save();
+    c.translate(bodyW*.20 + headR*(.14 + i*.42), headY - headR*.12);
+    c.scale(1, openAmt);
+    c.beginPath(); c.arc(0,0,er,0,7); c.fill();
+    c.restore();
+  });
+  c.shadowColor="rgba(240,189,85,.9)"; c.shadowBlur=s*.10;
+  c.beginPath(); c.arc(bodyW*.20+headR*.20, headY-headR*.12, er*.6,0,7); c.fill();
+  c.shadowBlur=0;
+  c.restore();
+}
+
+/* --------------------------- object glyphs --------------------------- */
+const ITEMS = [
+  {id:"lantern", name:"lantern"},
+  {id:"key",     name:"key"},
+  {id:"compass", name:"compass"},
+  {id:"letter",  name:"letter"},
+  {id:"watch",   name:"pocket watch"},
+  {id:"brolly",  name:"umbrella"}
+];
+function drawItem(c, it, x, y, s, color){
+  c.save(); c.translate(x,y); c.strokeStyle=color||"#221f18"; c.fillStyle=color||"#221f18";
+  c.lineWidth=Math.max(1.4, s*.075); c.lineCap="round"; c.lineJoin="round";
+  const u=s/2;
+  switch(it.id){
+    case "lantern":
+      c.beginPath(); c.moveTo(-u*.5,-u*.55); c.lineTo(u*.5,-u*.55); c.lineTo(u*.62,u*.55); c.lineTo(-u*.62,u*.55); c.closePath(); c.stroke();
+      c.beginPath(); c.arc(0,-u*.85,u*.34,Math.PI,0); c.stroke();
+      c.beginPath(); c.moveTo(0,-u*.25); c.lineTo(0,u*.3); c.stroke(); break;
+    case "key":
+      c.beginPath(); c.arc(-u*.42,0,u*.36,0,7); c.stroke();
+      c.beginPath(); c.moveTo(-u*.06,0); c.lineTo(u*.72,0); c.stroke();
+      c.beginPath(); c.moveTo(u*.42,0); c.lineTo(u*.42,u*.34); c.stroke();
+      c.beginPath(); c.moveTo(u*.68,0); c.lineTo(u*.68,u*.28); c.stroke(); break;
+    case "compass":
+      c.beginPath(); c.arc(0,0,u*.78,0,7); c.stroke();
+      c.beginPath(); c.moveTo(-u*.3,u*.3); c.lineTo(u*.34,-u*.34); c.lineTo(u*.1,u*.1); c.closePath(); c.fill(); break;
+    case "letter":
+      c.beginPath(); c.rect(-u*.78,-u*.52,u*1.56,u*1.04); c.stroke();
+      c.beginPath(); c.moveTo(-u*.78,-u*.52); c.lineTo(0,u*.14); c.lineTo(u*.78,-u*.52); c.stroke(); break;
+    case "watch":
+      c.beginPath(); c.arc(0,u*.12,u*.66,0,7); c.stroke();
+      c.beginPath(); c.moveTo(0,-u*.54); c.lineTo(0,-u*.82); c.stroke();
+      c.beginPath(); c.moveTo(0,u*.12); c.lineTo(0,-u*.24); c.stroke();
+      c.beginPath(); c.moveTo(0,u*.12); c.lineTo(u*.3,u*.2); c.stroke(); break;
+    case "brolly":
+      c.beginPath(); c.arc(0,0,u*.8,Math.PI,0); c.stroke();
+      c.beginPath(); c.moveTo(0,0); c.lineTo(0,u*.68); c.stroke();
+      c.beginPath(); c.arc(-u*.2,u*.68,u*.2,0,Math.PI); c.stroke(); break;
+  }
+  c.restore();
+}
+const ROOMS = ["the porch","the hall","the study","the cellar","the attic"];
+function drawDoor(c, n, x, y, s, color){
+  c.save(); c.translate(x,y); c.strokeStyle=color||"#221f18"; c.fillStyle=color||"#221f18";
+  c.lineWidth=Math.max(1.4,s*.075);
+  const u=s/2;
+  c.beginPath(); c.rect(-u*.56,-u*.82,u*1.12,u*1.64); c.stroke();
+  c.beginPath(); c.arc(u*.3,0,u*.09,0,7); c.fill();
+  c.font=mono(Math.round(s*.42),700);
+  c.textAlign="center"; c.textBaseline="middle";
+  c.fillText(String(n+1), -u*.08, -u*.16);
+  c.restore();
+}
+
+/* --------------------------- fog backdrop --------------------------- */
+(function bgLoop(){
+  const cv=$("bg"); let c, W, H, blobs=[];
+  function size(){
+    W=window.innerWidth; H=window.innerHeight; c=fitCanvas(cv,W,H);
+    blobs=[]; for(let i=0;i<7;i++) blobs.push({x:Math.random()*W,y:H*(.45+Math.random()*.6),r:H*(.22+Math.random()*.3),sp:.06+Math.random()*.12,ph:Math.random()*99});
+  }
+  size(); window.addEventListener("resize",size);
+  const reduce = REDUCE;
+  function frame(t){
+    c.clearRect(0,0,W,H);
+    const g=c.createRadialGradient(W*.5,-H*.12,10,W*.5,H*.2,H*.95);
+    g.addColorStop(0,"#1d3238"); g.addColorStop(.45,"#102025"); g.addColorStop(1,"#070f12");
+    c.fillStyle=g; c.fillRect(0,0,W,H);
+    c.globalAlpha=.12;
+    blobs.forEach(b=>{
+      const x = reduce ? b.x : (b.x + Math.sin(t/9000*b.sp*10 + b.ph)*W*.25 + W)%W;
+      const gg=c.createRadialGradient(x,b.y,0,x,b.y,b.r);
+      gg.addColorStop(0,"#7fa6ad"); gg.addColorStop(1,"rgba(127,166,173,0)");
+      c.fillStyle=gg; c.beginPath(); c.arc(x,b.y,b.r,0,7); c.fill();
+    });
+    c.globalAlpha=1;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ------------------------------ storage ------------------------------ */
+const Store = {
+  key:"lamplight.v1",
+  data:null,
+  load(){
+    try{ this.data = JSON.parse(localStorage.getItem(this.key)) || null; }catch(e){ this.data=null; }
+    if(!this.data) this.data = { profiles:[], sound:true };
+    return this.data;
+  },
+  save(){ try{ localStorage.setItem(this.key, JSON.stringify(this.data)); }catch(e){} },
+  profile(){ return this.data.profiles.find(p=>p.id===this.data.current) || null; }
+};
+Store.load();
+
+/* ------------------------------ screens ------------------------------ */
+let current="s-title";
+let titleTick=null;
+function go(id){
+  const was=current;
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
+  $(id).classList.add("on"); current=id; window.scrollTo(0,0);
+  if(id==="s-title" && was!=="s-title" && titleTick) titleTick();
+}
+function modal(html){
+  $("modalBox").innerHTML = html;
+  $("modal").classList.add("on");
+}
+$("modal").addEventListener("click",e=>{ if(e.target.id==="modal") $("modal").classList.remove("on"); });
+$("mute").addEventListener("click",()=>{
+  Snd.set(!Snd.on); Store.data.sound=Snd.on; Store.save();
+  $("mute").textContent = Snd.on ? "♪" : "♪̸";
+  $("mute").style.color = Snd.on ? "#5c7178" : "#33484f";
+});
+Snd.set(Store.data.sound !== false);
+if(!Snd.on){ $("mute").textContent="♪̸"; $("mute").style.color="#33484f"; }
+
+const range = n => Array.from({length:n},(_,i)=>i);
+const permCache = {};
+function perms(n){
+  if(permCache[n]) return permCache[n];
+  const out=[]; const a=range(n);
+  (function rec(k){
+    if(k===n){ out.push(a.slice()); return; }
+    for(let i=k;i<n;i++){ [a[k],a[i]]=[a[i],a[k]]; rec(k+1); [a[k],a[i]]=[a[i],a[k]]; }
+  })(0);
+  return permCache[n]=out;
+}
+
+const CT = { POS_AI:0, NEG_AI:1, POS_AR:2, NEG_AR:3, POS_IR:4, NEG_IR:5, LEFT:6, ADJ:7,
+             WIT_ABOVE:8, WIT_BELOW:9, WIT_MORE:10 };
+const isItemClue = t => t===CT.POS_AI || t===CT.NEG_AI;
+const isRoomClue = t => t===CT.POS_AR || t===CT.NEG_AR || t===CT.LEFT || t===CT.ADJ ||
+                        t===CT.WIT_ABOVE || t===CT.WIT_BELOW || t===CT.WIT_MORE;
+
+function checkItem(c, ip){
+  if(c.t===CT.POS_AI) return ip[c.x]===c.y;
+  return ip[c.x]!==c.y;
+}
+function checkRoom(c, rp){
+  switch(c.t){
+    case CT.POS_AR: return rp[c.x]===c.y;
+    case CT.NEG_AR: return rp[c.x]!==c.y;
+    case CT.LEFT:   return rp[c.x] < rp[c.y];
+    case CT.ADJ:    return Math.abs(rp[c.x]-rp[c.y])===1;
+    /* "at least y people were above me" pins a range, not a floor */
+    case CT.WIT_ABOVE: return (rp.length-1-rp[c.x]) >= c.y;
+    case CT.WIT_BELOW: return rp[c.x] >= c.y;
+    case CT.WIT_MORE:  return (rp.length-1-rp[c.x]) > rp[c.x];
+  }
+  return true;
+}
+function checkIR(c, ip, rp){
+  const a = ip.indexOf(c.x);          // who holds item x
+  return c.t===CT.POS_IR ? rp[a]===c.y : rp[a]!==c.y;
+}
+function countSolutions(clues, N, cap, withItems){
+  const P = perms(N);
+  if(withItems===false){
+    const rc0 = clues.filter(c=>isRoomClue(c.t));
+    return P.filter(p=>rc0.every(c=>checkRoom(c,p))).length;
+  }
+  const ic = clues.filter(c=>isItemClue(c.t));
+  const rc = clues.filter(c=>isRoomClue(c.t));
+  const xc = clues.filter(c=>!isItemClue(c.t) && !isRoomClue(c.t));
+  const ips = P.filter(p=>ic.every(c=>checkItem(c,p)));
+  const rps = P.filter(p=>rc.every(c=>checkRoom(c,p)));
+  if(!xc.length) return ips.length*rps.length;
+  let n=0;
+  for(const ip of ips) for(const rp of rps){
+    if(xc.every(c=>checkIR(c,ip,rp))){ n++; if(n>=(cap||2)) return n; }
+  }
+  return n;
+}
+
+
+/* Every case must be crackable by the moves a child can actually make:
+   read a clue, cross things off, take singles. Never by guessing and backtracking.
+   Generation rejects anything this solver can't finish. */
+function solvableByCrossingOff(k){
+  const N=k.N;
+  const I=range(N).map(()=>range(N).map(()=>true));
+  const R=range(N).map(()=>range(N).map(()=>true));
+  const only=(g,a,v)=>{ for(let x=0;x<N;x++) if(x!==v) g[a][x]=false; };
+  const onlyCol=(g,j,v)=>{ for(let x=0;x<N;x++) if(x!==v) g[x][j]=false; };
+  let spins=0, changed=true;
+  while(changed && spins++<120){
+    const before=JSON.stringify([I,R]);
+    for(const c of k.clues){
+      switch(c.t){
+        case CT.POS_AI: only(I,c.x,c.y); onlyCol(I,c.y,c.x); break;
+        case CT.NEG_AI: I[c.x][c.y]=false; break;
+        case CT.POS_AR: only(R,c.x,c.y); onlyCol(R,c.y,c.x); break;
+        case CT.NEG_AR: R[c.x][c.y]=false; break;
+        case CT.LEFT:
+          for(let r=0;r<N;r++){
+            if(R[c.x][r] && !R[c.y].some((v,q)=>v&&q>r)) R[c.x][r]=false;
+            if(R[c.y][r] && !R[c.x].some((v,q)=>v&&q<r)) R[c.y][r]=false;
+          } break;
+        case CT.ADJ:
+          for(let r=0;r<N;r++){
+            if(R[c.x][r] && !(R[c.y][r-1]||R[c.y][r+1])) R[c.x][r]=false;
+            if(R[c.y][r] && !(R[c.x][r-1]||R[c.x][r+1])) R[c.y][r]=false;
+          } break;
+        case CT.WIT_ABOVE:
+          for(let r=0;r<N;r++) if(R[c.x][r] && (N-1-r) < c.y) R[c.x][r]=false;
+          break;
+        case CT.WIT_BELOW:
+          for(let r=0;r<N;r++) if(R[c.x][r] && r < c.y) R[c.x][r]=false;
+          break;
+        case CT.WIT_MORE:
+          for(let r=0;r<N;r++) if(R[c.x][r] && !((N-1-r) > r)) R[c.x][r]=false;
+          break;
+        case CT.POS_IR:
+          for(let a=0;a<N;a++){
+            if(!I[a][c.x]) R[a][c.y]=false;
+            if(!R[a][c.y]) I[a][c.x]=false;
+          } break;
+        case CT.NEG_IR:
+          for(let a=0;a<N;a++){
+            if(I[a].filter(Boolean).length===1 && I[a][c.x]) R[a][c.y]=false;
+            if(R[a].filter(Boolean).length===1 && R[a][c.y]) I[a][c.x]=false;
+          } break;
+      }
+    }
+    for(const g of [I,R]){
+      for(let a=0;a<N;a++){ const cs=g[a].map((v,j)=>v?j:-1).filter(j=>j>=0);
+        if(cs.length===1) onlyCol(g,cs[0],a); }
+      for(let j=0;j<N;j++){ const cs=range(N).filter(a=>g[a][j]);
+        if(cs.length===1) only(g,cs[0],j); }
+    }
+    changed = JSON.stringify([I,R])!==before;
+  }
+  return range(N).every(a=>R[a].filter(Boolean).length===1 &&
+    (!k.withItems || I[a].filter(Boolean).length===1));
+}
+
+function makeDeductionCase(spec){
+  /* Never hand back a case that can only be finished by guessing. Keep
+     generating until one passes; the loop below has never needed more than a
+     handful of tries, but it is unbounded on purpose. */
+  let best=null;
+  for(let a=0;a<400;a++){
+    const c=buildDeductionCase(spec);
+    if(!solvableByCrossingOff(c)) continue;
+    if(!best || c.clues.length<best.clues.length) best=c;
+    if(a>=5 && best) break;
+  }
+  return best || makeDeductionCase(spec);
+}
+function buildDeductionCase(spec){
+  const N = spec.n, withItems = spec.items, tier = spec.tier;
+  const cast  = shuffle(CAST.slice()).slice(0,N);
+  const items = shuffle(ITEMS.slice()).slice(0,N);
+  const itemOf = shuffle(range(N));
+  const roomOf = shuffle(range(N));
+
+  const pool = [];
+  if(withItems) for(let a=0;a<N;a++) for(let i=0;i<N;i++){
+    if(itemOf[a]===i) pool.push({t:CT.POS_AI,x:a,y:i}); else pool.push({t:CT.NEG_AI,x:a,y:i});
+  }
+  for(let a=0;a<N;a++) for(let r=0;r<N;r++){
+    if(roomOf[a]===r) pool.push({t:CT.POS_AR,x:a,y:r}); else pool.push({t:CT.NEG_AR,x:a,y:r});
+  }
+  if(withItems){
+    for(let i=0;i<N;i++) for(let r=0;r<N;r++){
+      const a = itemOf.indexOf(i);
+      if(roomOf[a]===r) pool.push({t:CT.POS_IR,x:i,y:r}); else pool.push({t:CT.NEG_IR,x:i,y:r});
+    }
+  }
+  if(spec.witness) for(let a=0;a<N;a++){
+    const above=N-1-roomOf[a], below=roomOf[a];
+    for(let y=1;y<=above;y++) pool.push({t:CT.WIT_ABOVE,x:a,y:y});
+    for(let y=1;y<=below;y++) pool.push({t:CT.WIT_BELOW,x:a,y:y});
+    if(above>below) pool.push({t:CT.WIT_MORE,x:a});
+  }
+  if(!spec.plain) for(let a=0;a<N;a++) for(let b=0;b<N;b++){
+    if(a===b) continue;
+    if(roomOf[a] < roomOf[b]) pool.push({t:CT.LEFT,x:a,y:b});
+    if(Math.abs(roomOf[a]-roomOf[b])===1 && a<b) pool.push({t:CT.ADJ,x:a,y:b});
+  }
+
+  shuffle(pool);
+  let chosen=[];
+  /* A witness case that happens to contain no witness statement is not a
+     witness case. Seed two of them and protect them from pruning. */
+  const seeds=[];
+  if(spec.witness){
+    const w=shuffle(pool.filter(c=>c.t===CT.WIT_ABOVE||c.t===CT.WIT_BELOW||c.t===CT.WIT_MORE));
+    const bySpeaker=[];
+    for(const c of w) if(!bySpeaker.some(d=>d.x===c.x)) bySpeaker.push(c);
+    seeds.push(...bySpeaker.slice(0,2));
+    chosen.push(...seeds);
+  }
+  for(const c of pool){
+    if(seeds.includes(c)) continue;
+    chosen.push(c);
+    if(countSolutions(chosen,N,2,withItems)===1) break;
+  }
+  for(let i=chosen.length-1;i>=0;i--){
+    if(seeds.includes(chosen[i])) continue;
+    const t = chosen.slice(); t.splice(i,1);
+    if(countSolutions(t,N,2,withItems)===1) chosen=t;
+  }
+
+  shuffle(chosen);
+  return { N, cast, items, itemOf, roomOf, clues:chosen, tier, withItems };
+}
+
+
+/* ==================================================================
+   VARIANT GENERATORS
+   All four reuse the same board: suspects, floors, clue cards. What
+   changes is the rule of inference, never the controls.
+   ================================================================== */
+function roomSolutions(clues, N){
+  const rc = clues.filter(c=>isRoomClue(c.t));
+  return perms(N).filter(p=>rc.every(c=>checkRoom(c,p)));
+}
+
+/* ---- ONE OF THEM IS LYING ------------------------------------------
+   Every card but one is true. Taken together they contradict, so the
+   only way through is to assume a card is false and see what survives. */
+function makeLiarCase(spec){
+  for(let attempt=0; attempt<300; attempt++){
+    const base = buildDeductionCase(spec);
+    if(!solvableByCrossingOff(base)) continue;
+    const N=base.N, sol=base.roomOf;
+    // statements that are false about what really happened
+    const lies=[];
+    for(let a=0;a<N;a++) for(let r=0;r<N;r++){
+      if(sol[a]!==r) lies.push({t:CT.POS_AR,x:a,y:r});
+      else lies.push({t:CT.NEG_AR,x:a,y:r});
+    }
+    for(let a=0;a<N;a++) for(let b=0;b<N;b++){
+      if(a===b) continue;
+      if(!(sol[a]<sol[b])) lies.push({t:CT.LEFT,x:a,y:b});
+      if(Math.abs(sol[a]-sol[b])!==1 && a<b) lies.push({t:CT.ADJ,x:a,y:b});
+    }
+    shuffle(lies);
+    for(const F of lies.slice(0,14)){
+      const clues = shuffle(base.clues.concat([F]));
+      // exactly one card can be the liar, and dropping it must leave one answer
+      let ok=true, liarIx=-1;
+      for(let i=0;i<clues.length && ok;i++){
+        const rest = clues.filter((_,j)=>j!==i);
+        const surv = roomSolutions(rest,N).filter(rp=>!checkRoom(clues[i],rp));
+        if(clues[i]===F){ if(surv.length!==1) ok=false; else liarIx=i; }
+        else if(surv.length!==0) ok=false;
+      }
+      if(ok && liarIx>=0)
+        return Object.assign({}, base, {clues, liarIx, variant:"liar"});
+    }
+  }
+  return null;
+}
+
+/* ---- NOT ENOUGH -----------------------------------------------------
+   Two arrangements fit every card. The move is to notice that, say so,
+   and then pick the question whose answer would actually settle it. */
+function makeShortCase(spec){
+  for(let attempt=0; attempt<300; attempt++){
+    const base = buildDeductionCase(spec);
+    const N=base.N, sol=base.roomOf;
+    // drop one card until exactly two arrangements survive
+    let clues=null;
+    for(const i of shuffle(range(base.clues.length))){
+      const t = base.clues.filter((_,j)=>j!==i);
+      if(roomSolutions(t,N).length===2){ clues=t; break; }
+    }
+    if(!clues) continue;
+    const sols = roomSolutions(clues,N);
+    const alt = sols.find(p=>p.some((v,a)=>v!==sol[a]));
+    if(!alt) continue;
+    // every statement that is true of what really happened
+    const truths=[];
+    for(let a=0;a<N;a++) for(let r=0;r<N;r++)
+      truths.push(sol[a]===r ? {t:CT.POS_AR,x:a,y:r} : {t:CT.NEG_AR,x:a,y:r});
+    for(let a=0;a<N;a++) for(let b=0;b<N;b++){
+      if(a===b) continue;
+      if(sol[a]<sol[b]) truths.push({t:CT.LEFT,x:a,y:b});
+      if(Math.abs(sol[a]-sol[b])===1 && a<b) truths.push({t:CT.ADJ,x:a,y:b});
+    }
+    const decisive = shuffle(truths.filter(c=>!checkRoom(c,alt)));
+    const useless  = shuffle(truths.filter(c=> checkRoom(c,alt)));
+    if(!decisive.length || useless.length<2) continue;
+    const offer = shuffle([decisive[0], useless[0], useless[1]]);
+    const cand = Object.assign({}, base, {clues, offer,
+      goodIx: offer.indexOf(decisive[0]), variant:"short", stage:"arrange"});
+    if(!solvableByCrossingOff(Object.assign({},cand,{clues:clues.concat([decisive[0]])}))) continue;
+    return cand;
+  }
+  return null;
+}
+
+/* ---- SEALED ENVELOPES ----------------------------------------------
+   Six clues, face down, labelled only by what they are about. Three of
+   them are enough. Choosing which to spend is the whole exercise. */
+function envelopeTopic(k, c){
+  const n = a => k.cast[a].name;
+  switch(c.t){
+    case CT.LEFT: case CT.ADJ: return n(c.x)+" and "+n(c.y);
+    default: return n(c.x);
+  }
+}
+function makeBudgetCase(spec){
+  for(let attempt=0; attempt<300; attempt++){
+    const base = buildDeductionCase(spec);
+    if(base.clues.length!==3) continue;             // want "crackable in three"
+    if(!solvableByCrossingOff(base)) continue;
+    const N=base.N, sol=base.roomOf;
+    const extra=[];
+    for(let a=0;a<N;a++) for(let r=0;r<N;r++)
+      if(sol[a]!==r) extra.push({t:CT.NEG_AR,x:a,y:r});
+    for(let a=0;a<N;a++) for(let b=0;b<N;b++){
+      if(a===b) continue;
+      if(sol[a]<sol[b]) extra.push({t:CT.LEFT,x:a,y:b});
+      if(Math.abs(sol[a]-sol[b])===1 && a<b) extra.push({t:CT.ADJ,x:a,y:b});
+    }
+    shuffle(extra);
+    /* Spread the labels across as many suspects as possible, otherwise four of
+       the six envelopes say "about Mo" and choosing by label means nothing. */
+    const topicOf = c => (c.t===CT.LEFT||c.t===CT.ADJ) ? c.x+"-"+c.y : ""+c.x;
+    const seen = new Set(base.clues.map(topicOf));
+    const fresh = extra.filter(c=>!base.clues.some(b=>b.t===c.t&&b.x===c.x&&b.y===c.y));
+    const pad=[];
+    for(const c of fresh){ if(pad.length>=3) break; if(seen.has(topicOf(c))) continue; seen.add(topicOf(c)); pad.push(c); }
+    for(const c of fresh){ if(pad.length>=3) break; if(pad.indexOf(c)<0) pad.push(c); }
+    if(pad.length<3) continue;
+    const clues = shuffle(base.clues.concat(pad));
+    if(roomSolutions(clues,N).length!==1) continue;
+    return Object.assign({}, base, {clues, opened:[], variant:"budget"});
+  }
+  return null;
+}
+
+/* ==================================================================
+   THE CASE SCREEN
+   You put suspects into rooms by tapping. Every clue is a sentence and
+   turns green the moment it's satisfied. Nothing to submit, nothing to
+   decode. When all the cards are green, the case closes itself.
+   ================================================================== */
+const C = { kase:null, place:[], hold:[], sel:null, selKind:null, done:false,
+            accused:-1, opened:[], stage:"", offer:[], spent:[] };
+
+function iconCanvas(kind, k, idx, s){
+  const cv=document.createElement("canvas");
+  if(kind==="A"){ const c=fitCanvas(cv,s,s); drawAnimal(c,k.cast[idx],s/2,s*.90,s*.80,0,{lit:false,blink:false,ink:k.cast[idx].col}); }
+  else if(kind==="I"){ const c=fitCanvas(cv,s,s); drawItem(c,k.items[idx],s/2,s/2,s*.78); }
+  else { const c=fitCanvas(cv,s,s); drawDoor(c,idx,s/2,s/2,s*.72); }
+  return cv;
+}
+/* a clue in words, with the picture of whoever it names sitting in the sentence */
+const WORDNUM=["no","one","two","three","four","five"];
+function clueParts(k, c){
+  const A=a=>({icon:"A",i:a,text:k.cast[a].name});
+  const I=i=>({icon:"I",i:i,text:"the "+k.items[i].name});
+  const R=r=>({text:"floor "+(r+1)});
+  switch(c.t){
+    case CT.POS_AI: return [A(c.x), {text:"has"}, I(c.y)];
+    case CT.NEG_AI: return [A(c.x), {text:"does NOT have"}, I(c.y)];
+    case CT.POS_AR: return [A(c.x), {text:"is on"}, R(c.y)];
+    case CT.NEG_AR: return [A(c.x), {text:"is NOT on"}, R(c.y)];
+    case CT.POS_IR: return [I(c.x), {text:"is on"}, R(c.y)];
+    case CT.NEG_IR: return [I(c.x), {text:"is NOT on"}, R(c.y)];
+    case CT.LEFT:   return [A(c.x), {text:"is on a lower floor than"}, A(c.y)];
+    case CT.ADJ:    return [A(c.x), {text:"is one floor above or below"}, A(c.y)];
+    case CT.WIT_ABOVE: return [A(c.x), {text:"says: I could hear at least "+
+      (c.y===1?"one person":WORDNUM[c.y]+" people")+" moving about above me"}];
+    case CT.WIT_BELOW: return [A(c.x), {text:"says: there "+(c.y===1?"was at least one person":
+      "were at least "+WORDNUM[c.y]+" people")+" below me"}];
+    case CT.WIT_MORE:  return [A(c.x), {text:"says: there were more people above me than below me"}];
+  }
+  return [{text:"?"}];
+}
+/* live status: green satisfied, red broken, grey not decided yet */
+function clueStatus(k, c){
+  const P=C.place, H=C.hold;
+  const roomOf = a => P[a];
+  const holderOf = i => { const a=H.indexOf(i); return a<0?-1:a; };
+  switch(c.t){
+    case CT.POS_AI: return H[c.x]<0 ? 0 : (H[c.x]===c.y?1:-1);
+    case CT.NEG_AI: return H[c.x]<0 ? 0 : (H[c.x]!==c.y?1:-1);
+    case CT.POS_AR: return P[c.x]<0 ? 0 : (P[c.x]===c.y?1:-1);
+    case CT.NEG_AR: return P[c.x]<0 ? 0 : (P[c.x]!==c.y?1:-1);
+    case CT.POS_IR: { const a=holderOf(c.x); if(a<0||P[a]<0) return 0; return P[a]===c.y?1:-1; }
+    case CT.NEG_IR: { const a=holderOf(c.x); if(a<0||P[a]<0) return 0; return P[a]!==c.y?1:-1; }
+    case CT.LEFT:   return (P[c.x]<0||P[c.y]<0) ? 0 : (P[c.x]<P[c.y]?1:-1);
+    case CT.ADJ:    return (P[c.x]<0||P[c.y]<0) ? 0 : (Math.abs(P[c.x]-P[c.y])===1?1:-1);
+    case CT.WIT_ABOVE: return P[c.x]<0 ? 0 : ((k.N-1-P[c.x])>=c.y?1:-1);
+    case CT.WIT_BELOW: return P[c.x]<0 ? 0 : (P[c.x]>=c.y?1:-1);
+    case CT.WIT_MORE:  return P[c.x]<0 ? 0 : ((k.N-1-P[c.x])>P[c.x]?1:-1);
+  }
+  return 0;
+}
+
+const VARIANT_MAKERS = { liar:makeLiarCase, short:makeShortCase, budget:makeBudgetCase };
+function startCase(cs, resume){
+  if(resume){
+    C.kase=resume.kase; C.place=resume.place; C.hold=resume.hold;
+    C.accused=resume.accused!==undefined?resume.accused:-1;
+    C.opened=resume.opened||[]; C.stage=resume.stage||""; C.spent=resume.spent||[];
+  } else {
+    let k=null;
+    if(cs.variant==="design"){
+      k=null;
+    } else if(VARIANT_MAKERS[cs.variant]){
+      for(let i=0;i<4 && !k;i++) k=VARIANT_MAKERS[cs.variant](cs.spec);
+      if(!k) k=makeDeductionCase(cs.spec);          // never leave a child with nothing
+    } else {
+      k=makeDeductionCase(cs.spec);
+    }
+    if(cs.variant==="design"){
+      C.kase={ N:cs.spec.n, cast:shuffle(CAST.slice()).slice(0,cs.spec.n),
+               items:[], itemOf:[], roomOf:[], clues:[], withItems:false,
+               variant:"design", id:cs.id, title:cs.title };
+      C.stage="place";
+    } else {
+      C.kase=k; C.kase.id=cs.id; C.kase.title=cs.title;
+      C.kase.variant=cs.variant||"plain";
+      C.stage = cs.variant==="short" ? "arrange" : "";
+    }
+    if(cs.fixed){                                    // a case somebody made
+      C.kase.clues=cs.fixed.clues; C.kase.roomOf=cs.fixed.roomOf;
+      C.kase.cast=cs.fixed.cast.map(i=>CAST[i]); C.kase.N=cs.fixed.roomOf.length;
+      C.kase.variant="plain"; C.stage="";
+    }
+    C.place = range(C.kase.N).map(()=>-1);
+    C.hold  = range(C.kase.N).map(()=>-1);
+    C.accused=-1; C.opened=[]; C.offer=[]; C.spent=[];
+  }
+  C.sel=null; C.selKind=null; C.done=false;
+  resultToken++;
+  go("s-case"); buildCase(); startScene(); saveProgress();
+}
+
+function buildCase(){
+  const k=C.kase;
+  $("caseTier").textContent = k.title;
+  const V=k.variant;
+  $("howto").innerHTML =
+    V==="liar"   ? "Every card is true <b>except one</b>. Somebody is lying. Work out who, tap their card to accuse them, and put everyone where they really were."
+  : V==="short"  ? "Read the cards and place everyone. If more than one arrangement fits, the file does not say enough \u2014 and your job is to <b>say so</b>."
+  : V==="budget" ? "Six sealed envelopes. Each is labelled with who it is about. Open only the ones you actually need \u2014 <b>three is enough</b>."
+  : V==="design" ? (C.stage==="place"
+      ? "You are hiding them this time. Put each suspect on a floor. Nobody else gets to see this part."
+      : "Now choose the clues you will give. Watch the counter: you want it to say <b>one</b> possible answer, and no more clues than you need.")
+  : k.withItems  ? "Tap a suspect, then tap a floor to put them there. Tap a <b>thing</b>, then tap a floor to say who was carrying it. Get every card <b>green</b>."
+  :                "Tap a suspect on the street below, then tap the floor you think they were on. Tap them again to move them. Get every card <b>green</b>.";
+  $("itemTrayWrap").style.display = k.withItems ? "block" : "none";
+  drawRooms(); drawTrays(); drawClues(); drawExtra();
+}
+
+function clueSentence(k,c,into){
+  const parts=clueParts(k,c);
+  parts.forEach((part,ix)=>{
+    if(part.icon){
+      into.appendChild(iconCanvas(part.icon,k,part.i,22));
+      const b=document.createElement("b");
+      b.textContent = ix===0 ? part.text.charAt(0).toUpperCase()+part.text.slice(1) : part.text;
+      into.appendChild(b);
+    } else {
+      let txt=part.text;
+      if(ix===0) txt=txt.charAt(0).toUpperCase()+txt.slice(1);
+      const sp=document.createElement("span");
+      sp.textContent=(ix?" ":"")+txt+(ix===parts.length-1?"":" ");
+      into.appendChild(sp);
+    }
+  });
+  into.appendChild(document.createTextNode("."));
+}
+function drawClues(){
+  const k=C.kase, host=$("clueList"); host.innerHTML="";
+  if(k.variant==="design"){ drawDesigner(host); return; }
+  k.clues.forEach((c,ci)=>{
+    if(k.variant==="budget" && C.opened.indexOf(ci)<0){
+      const el=document.createElement("button"); el.className="clue sealed";
+      const m=document.createElement("span"); m.className="mark"; m.textContent="\u2709";
+      el.appendChild(m);
+      const t=document.createElement("span"); t.className="txt";
+      t.textContent="Sealed \u2014 about "+envelopeTopic(k,c);
+      el.appendChild(t);
+      const f=document.createElement("span"); f.className="flag"; f.textContent="OPEN";
+      el.appendChild(f);
+      el.addEventListener("click",()=>{ C.opened.push(ci); Snd.open();
+        drawClues(); drawExtra(); saveProgress(); checkWin(); });
+      host.appendChild(el); return;
+    }
+    const st=clueStatus(k,c);
+    const accused = k.variant==="liar" && C.accused===ci;
+    const el=document.createElement(k.variant==="liar"?"button":"div");
+    el.className="clue"+(accused?" accused":st===1?" ok":st===-1?" no":"")+(k.variant==="liar"?" accuse":"");
+    const m=document.createElement("span"); m.className="mark";
+    m.textContent = accused?"\u2691" : st===1?"\u2713" : st===-1?"\u2715" : "\u00b7";
+    el.appendChild(m);
+    const t=document.createElement("span"); t.className="txt";
+    clueSentence(k,c,t);
+    el.appendChild(t);
+    if(k.variant==="liar"){
+      const f=document.createElement("span"); f.className="flag";
+      f.textContent = accused?"LIAR":"ACCUSE";
+      el.appendChild(f);
+      el.addEventListener("click",()=>{
+        C.accused = C.accused===ci ? -1 : ci;
+        Snd.tap(); drawClues(); drawExtra(); saveProgress(); checkWin();
+      });
+    }
+    host.appendChild(el);
+  });
+}
+
+function drawExtra(){
+  const k=C.kase, host=$("extra"); host.innerHTML="";
+  const V=k.variant;
+
+  if(V==="budget"){
+    const t=document.createElement("p"); t.className="tally"+(C.opened.length<=3?" good":"");
+    t.textContent="Envelopes opened: "+C.opened.length+" of 6 \u00b7 three is enough";
+    host.appendChild(t);
+  }
+
+  if(V==="liar"){
+    const t=document.createElement("p"); t.className="tally";
+    t.textContent = C.accused<0 ? "Nobody accused yet" : "You have accused one card of lying";
+    host.appendChild(t);
+  }
+
+  if(V==="short"){
+    if(C.stage==="arrange"){
+      const fits = C.place.every(v=>v>=0) && k.clues.every(c=>clueStatus(k,c)===1);
+      const b=document.createElement("button"); b.className="btn"; b.id="incompleteBtn";
+      b.textContent="The file is incomplete";
+      b.disabled=!fits;
+      b.addEventListener("click",declareIncomplete);
+      host.appendChild(b);
+      const t=document.createElement("p"); t.className="tally";
+      t.textContent = fits ? "Sure this is the only arrangement that fits?"
+                           : "Find an arrangement that fits every card first";
+      host.appendChild(t);
+    } else if(C.stage==="choose"){
+      const t=document.createElement("p"); t.className="tally";
+      t.textContent="Which question is worth asking?";
+      host.appendChild(t);
+      k.offer.forEach((c,i)=>{
+        if(C.spent.indexOf(i)>=0) return;
+        const b=document.createElement("button"); b.className="pick";
+        clueSentence(k,c,b);
+        b.addEventListener("click",()=>askQuestion(i));
+        host.appendChild(b);
+      });
+    }
+  }
+
+  if(V==="design"){
+    if(C.stage==="place"){
+      const ready=C.place.every(v=>v>=0);
+      const b=document.createElement("button"); b.className="btn"; b.textContent="Now choose the clues";
+      b.disabled=!ready;
+      b.addEventListener("click",()=>{ C.stage="clues"; C.kase.roomOf=C.place.slice();
+        buildDesignerPool(); Snd.open(); buildCase(); });
+      host.appendChild(b);
+    } else if(C.stage==="clues"){
+      drawDesignSave();
+    }
+  }
+}
+
+function declareIncomplete(){
+  const k=C.kase;
+  const n=roomSolutions(k.clues,k.N).length;
+  if(n<2){ flash("Not so fast \u2014 only one arrangement fits these cards."); Snd.no(); return; }
+  C.stage="choose"; Snd.stamp();
+  flash("Right. Two different arrangements fit every card, so the file cannot settle it.");
+  drawExtra(); saveProgress();
+}
+function askQuestion(i){
+  const k=C.kase, c=k.offer[i];
+  C.spent.push(i);
+  const before=roomSolutions(k.clues,k.N).length;
+  k.clues=k.clues.concat([c]);
+  const after=roomSolutions(k.clues,k.N).length;
+  if(after<before){
+    C.stage="resolved"; Snd.yes();
+    flash("Good question. That answer rules one of them out.");
+  } else {
+    Snd.no();
+    flash("True \u2014 but it was already true of both. It rules nothing out. Try another.");
+  }
+  drawClues(); drawExtra(); saveProgress(); checkWin();
+}
+
+/* ---- the case designer ------------------------------------------- */
+function buildDesignerPool(){
+  const k=C.kase, N=k.N, sol=k.roomOf, pool=[];
+  for(let a=0;a<N;a++) for(let r=0;r<N;r++)
+    pool.push(sol[a]===r ? {t:CT.POS_AR,x:a,y:r} : {t:CT.NEG_AR,x:a,y:r});
+  for(let a=0;a<N;a++) for(let b=0;b<N;b++){
+    if(a===b) continue;
+    if(sol[a]<sol[b]) pool.push({t:CT.LEFT,x:a,y:b});
+    if(Math.abs(sol[a]-sol[b])===1 && a<b) pool.push({t:CT.ADJ,x:a,y:b});
+  }
+  const pos=shuffle(pool.filter(c=>c.t===CT.POS_AR)).slice(0,2);
+  const neg=shuffle(pool.filter(c=>c.t===CT.NEG_AR)).slice(0,4);
+  const rel=shuffle(pool.filter(c=>c.t===CT.LEFT||c.t===CT.ADJ)).slice(0,4);
+  C.pool=shuffle(pos.concat(neg,rel));
+  C.chosen=[];
+}
+function drawDesigner(host){
+  const k=C.kase;
+  if(C.stage==="place"){
+    const p=document.createElement("p"); p.className="tally";
+    p.textContent="Step 1 \u00b7 hide the suspects";
+    host.appendChild(p); return;
+  }
+  const n=roomSolutions(C.chosen,k.N).length;
+  const t=document.createElement("p"); t.className="tally"+(n===1?" good":"");
+  t.textContent = C.chosen.length===0 ? "No clues yet \u00b7 "+n+" possible answers"
+    : n===1 ? "One possible answer \u00b7 this is a proper case"
+    : n+" possible answers \u00b7 not enough yet";
+  host.appendChild(t);
+  C.pool.forEach((c,i)=>{
+    const on=C.chosen.indexOf(c)>=0;
+    const b=document.createElement("button"); b.className="clue"+(on?" ok":"");
+    const m=document.createElement("span"); m.className="mark"; m.textContent=on?"\u2713":"+";
+    b.appendChild(m);
+    const tx=document.createElement("span"); tx.className="txt"; clueSentence(k,c,tx);
+    b.appendChild(tx);
+    b.addEventListener("click",()=>{
+      const ix=C.chosen.indexOf(c);
+      if(ix>=0) C.chosen.splice(ix,1); else C.chosen.push(c);
+      Snd.tap(); drawClues(); drawDesignSave();
+    });
+    host.appendChild(b);
+  });
+  drawDesignSave();
+}
+function drawDesignSave(){
+  const k=C.kase, host=$("extra"); host.innerHTML="";
+  if(C.stage!=="clues") return;
+  const n=roomSolutions(C.chosen,k.N).length;
+  const b=document.createElement("button"); b.className="btn";
+  b.textContent = n===1 ? "Save this case" : "Needs exactly one answer";
+  b.disabled = n!==1;
+  b.addEventListener("click",()=>{
+    const p=Store.profile(); p.made=p.made||[];
+    p.made.push({ name:"Case by "+p.name+" #"+(p.made.length+1),
+                  cast:k.cast.map(c=>CAST.findIndex(x=>x.id===c.id)),
+                  roomOf:k.roomOf.slice(), clues:C.chosen.slice() });
+    Store.save(); Snd.stamp();
+    modal('<h2>Case filed</h2><p>Your case is on the board now, under <b>Cases you made</b>. '+
+      'Hand the phone to somebody and see if they can crack it.</p>'+
+      '<button class="btn small" id="dmOk">Back to the board</button>');
+    $("dmOk").addEventListener("click",()=>{ $("modal").classList.remove("on"); openBoard(); });
+  });
+  host.appendChild(b);
+}
+
+function drawRooms(){
+  const k=C.kase, host=$("roomList"); host.innerHTML="";
+  /* Floor 1 is the ground floor, so it is drawn last and sits at the bottom
+     of the list. Everything above it is literally above it. */
+  for(let r=k.N-1;r>=0;r--){
+    const b=document.createElement("button"); b.className="room"+(C.sel!==null?" hot":"");
+    const lab=document.createElement("span"); lab.className="rlabel"; lab.textContent="Floor "+(r+1);
+    lab.prepend(iconCanvas("R",k,r,26));
+    b.appendChild(lab);
+    const slot=document.createElement("span"); slot.className="slot";
+    const who=C.place.indexOf(r);
+    if(who>=0){
+      const chip=document.createElement("span"); chip.className="chip";
+      chip.appendChild(iconCanvas("A",k,who,34));
+      chip.appendChild(document.createTextNode(k.cast[who].name));
+      slot.appendChild(chip);
+      if(k.withItems && C.hold[who]>=0){
+        const ic=document.createElement("span"); ic.className="chip";
+        ic.appendChild(iconCanvas("I",k,C.hold[who],28));
+        slot.appendChild(ic);
+      }
+    } else {
+      const e=document.createElement("span"); e.className="empty"; e.textContent="empty";
+      slot.appendChild(e);
+    }
+    b.appendChild(slot);
+    b.setAttribute("aria-label","Floor "+(r+1)+", "+(who>=0?k.cast[who].name:"empty"));
+    b.addEventListener("click",()=>tapRoom(r));
+    host.appendChild(b);
+  }
+}
+
+function drawTrays(){
+  const k=C.kase;
+  const out=range(k.N).filter(a=>C.place[a]<0);
+  $("trayLabel").textContent = out.length ? "Waiting on the street" : "Everyone is inside";
+  const tr=$("tray"); tr.innerHTML="";
+  out.forEach(a=>{
+    const b=document.createElement("button");
+    b.className="chip"+(C.sel===a&&C.selKind==="A"?" sel":"");
+    b.appendChild(iconCanvas("A",k,a,34));
+    b.appendChild(document.createTextNode(k.cast[a].name));
+    b.addEventListener("click",()=>{ C.sel=(C.sel===a&&C.selKind==="A")?null:a; C.selKind="A"; Snd.tap(); drawRooms(); drawTrays(); });
+    tr.appendChild(b);
+  });
+  if(!k.withItems) return;
+  const it=$("itemTray"); it.innerHTML="";
+  range(k.N).filter(i=>C.hold.indexOf(i)<0).forEach(i=>{
+    const b=document.createElement("button");
+    b.className="chip"+(C.sel===i&&C.selKind==="I"?" sel":"");
+    b.appendChild(iconCanvas("I",k,i,30));
+    b.appendChild(document.createTextNode("the "+k.items[i].name));
+    b.addEventListener("click",()=>{ C.sel=(C.sel===i&&C.selKind==="I")?null:i; C.selKind="I"; Snd.tap(); drawRooms(); drawTrays(); });
+    it.appendChild(b);
+  });
+}
+
+function sendOutside(a){                 // leaving a floor always drops what you were carrying
+  C.place[a]=-1; C.hold[a]=-1;
+}
+function tapRoom(r){
+  const k=C.kase;
+  const sitting=C.place.indexOf(r);
+  if(C.sel===null){
+    if(sitting>=0){ sendOutside(sitting); Snd.undo(); }   // pick whoever is in there back up
+    else return;
+  } else if(C.selKind==="A"){
+    if(sitting>=0) sendOutside(sitting);                  // swap them out
+    C.place[C.sel]=r; Snd.dot();
+  } else {
+    if(sitting<0){ flash("Put somebody on that floor first."); Snd.no(); return; }
+    const prev=C.hold.indexOf(C.sel); if(prev>=0) C.hold[prev]=-1;
+    C.hold[sitting]=C.sel; Snd.dot();
+  }
+  C.sel=null; C.selKind=null;
+  drawRooms(); drawTrays(); drawClues(); drawExtra(); saveProgress(); checkWin();
+}
+
+function flash(msg){
+  let n=$("flash");
+  if(!n){ n=document.createElement("p"); n.id="flash"; n.className="sub";
+    n.style.color="#e0a3a0"; n.style.margin="0 0 12px"; $("howto").insertAdjacentElement("afterend",n); }
+  n.textContent=msg; clearTimeout(n._t); n._t=setTimeout(()=>{n.textContent="";},3200);
+}
+
+function checkWin(){
+  const k=C.kase;
+  if(C.done || k.variant==="design") return;
+  const allPlaced = C.place.every(v=>v>=0) && (!k.withItems || C.hold.every(v=>v>=0));
+  if(!allPlaced) return;
+
+  if(k.variant==="liar"){
+    if(C.accused<0) return;
+    const ok = k.clues.every((c,i)=> i===C.accused ? clueStatus(k,c)===-1 : clueStatus(k,c)===1);
+    if(!ok) return;
+    C.done=true; Snd.stamp(); finishCase(); return;
+  }
+  if(k.variant==="budget"){
+    const opened=C.opened.map(i=>k.clues[i]);
+    if(!opened.length || !opened.every(c=>clueStatus(k,c)===1)) return;
+    if(roomSolutions(opened,k.N).length!==1){
+      flash("Everything you have opened fits this \u2014 but so does another arrangement. Open one more.");
+      return;
+    }
+    C.done=true; Snd.stamp(); finishCase(); return;
+  }
+  if(!k.clues.every(c=>clueStatus(k,c)===1)) return;
+  if(k.variant==="short" && C.stage!=="resolved") return;   // fitting is not the same as knowing
+  C.done=true; Snd.stamp(); finishCase();
+}
+
+function saveProgress(){
+  const p=Store.profile(); if(!p||!C.kase) return;
+  if(C.kase.variant==="design"){ delete p.wip; Store.save(); return; }
+  p.wip={ kase:C.kase, place:C.place, hold:C.hold,
+          accused:C.accused, opened:C.opened, stage:C.stage, spent:C.spent };
+  Store.save();
+}
+function clearProgress(){ const p=Store.profile(); if(p){ delete p.wip; Store.save(); } }
+
+/* ---------- the lit scene ---------- */
+let sceneRAF=null;
+function lampGlow(c,W,H,x,y,r){
+  const g=c.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,"rgba(240,189,85,.30)"); g.addColorStop(.45,"rgba(240,189,85,.09)");
+  g.addColorStop(1,"rgba(240,189,85,0)");
+  c.fillStyle=g; c.beginPath(); c.arc(x,y,r,0,7); c.fill();
+}
+function startScene(){
+  const W=$("sceneWrap").clientWidth, H=132;
+  const c=fitCanvas($("scene"),W,H), k=C.kase;
+  cancelAnimationFrame(sceneRAF);
+  function frame(t){
+    if(current!=="s-case"){ sceneRAF=null; return; }
+    c.clearRect(0,0,W,H); c.fillStyle="#0a161a"; c.fillRect(0,0,W,H);
+    lampGlow(c,W,H,W*.5,H*.02,H*1.25);
+    c.strokeStyle="rgba(127,166,173,.22)"; c.lineWidth=1;
+    c.beginPath(); c.moveTo(0,H-20); c.lineTo(W,H-20); c.stroke();
+    const gap=W/(k.N+1);
+    for(let i=0;i<k.N;i++){
+      const inside = C.place[i]>=0;          // once they are in the house they leave the street
+      c.globalAlpha = inside ? .18 : 1;
+      drawAnimal(c,k.cast[i],gap*(i+1),H-20,58,t);
+      c.fillStyle="#8ea0a6"; c.textAlign="center"; c.textBaseline="alphabetic"; c.font=mono(9);
+      c.fillText(k.cast[i].name.toUpperCase(), gap*(i+1), H-5);
+      c.globalAlpha=1;
+    }
+    sceneRAF=requestAnimationFrame(frame);
+  }
+  sceneRAF=requestAnimationFrame(frame);
+}
+
+/* ---------- case closed ---------- */
+let resultToken=0;
+function finishCase(){
+  const k=C.kase;
+  clearProgress();
+  const p=Store.profile();
+  p.closed=(p.closed||0)+1; p.tiers=p.tiers||{};
+  p.tiers[k.id]=(p.tiers[k.id]||0)+1; Store.save();
+  const rowH=48, W=Math.min(520,$("app").clientWidth-28), H=k.N*rowH+16;
+  const c=fitCanvas($("resultCanvas"),W,H);
+  let start=null; const token=++resultToken;
+  function frame(t){
+    if(token!==resultToken) return;
+    if(!start) start=t; const e=Math.min(1,(t-start)/1000);
+    c.clearRect(0,0,W,H); c.fillStyle="#0a161a"; c.fillRect(0,0,W,H);
+    lampGlow(c,W,H,W*.5,-H*.05,H*1.1);
+    /* drawn top floor first so that floor 1 lands on the ground, exactly
+       where the child put it */
+    for(let r=k.N-1;r>=0;r--){
+      const idx=k.N-1-r, top=8+idx*rowH, base=top+rowH-8;
+      c.strokeStyle="rgba(127,166,173,.20)"; c.lineWidth=1;
+      c.beginPath(); c.moveTo(10,base+4); c.lineTo(W-10,base+4); c.stroke();
+      c.globalAlpha=Math.min(1,Math.max(0,(e-(k.N-1-r)*.10)*3.5));
+      const a=C.place.indexOf(r);
+      if(a<0){ c.globalAlpha=1; continue; }
+      c.fillStyle="#55666c"; c.textAlign="left"; c.textBaseline="alphabetic"; c.font=mono(10);
+      c.fillText("FLOOR "+(r+1), 14, base);
+      drawAnimal(c,k.cast[a],W*.46,base,rowH*.78,t);
+      c.fillStyle="#8ea0a6"; c.textAlign="left"; c.font=mono(11);
+      c.fillText(k.cast[a].name.toUpperCase(), W*.56, base-4);
+      if(k.withItems) drawItem(c,k.items[C.hold[a]],W*.86,base-14,20,"#f0bd55");
+      c.globalAlpha=1;
+    }
+    c.strokeStyle="rgba(240,189,85,.35)"; c.lineWidth=2;
+    c.beginPath(); c.moveTo(10,H-4); c.lineTo(W-10,H-4); c.stroke();   // the ground
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  $("stampText").textContent = k.variant==="liar" ? "LIAR CAUGHT" : "CASE CLOSED";
+  if(k.variant==="liar"){
+    $("resultText").innerHTML="You found the one card that could not be true, and everything else fell into place. "+
+      "That trick \u2014 assume it, follow it, watch it break \u2014 works on a lot more than detective cases.";
+  } else if(k.variant==="budget"){
+    $("resultText").innerHTML="Closed on <b>"+C.opened.length+"</b> of the six envelopes. "+
+      (C.opened.length<=3 ? "You did not waste a single question." : "See how few you can do it in next time.");
+  } else if(k.variant==="short"){
+    $("resultText").innerHTML="You spotted that the file could not settle it, and then asked the question that could. "+
+      "Knowing what you do not know is the hard part.";
+  } else $("resultText").textContent="Every card went green. That is the only way they could have been arranged \u2014 you didn't guess it, you worked it out.";
+  $("againBtn").dataset.mode="d"; $("againBtn").dataset.id=k.id;
+  go("s-result");
+}
+
+$("resetBtn").addEventListener("click",()=>{
+  if(!C.kase) return;
+  C.place=range(C.kase.N).map(()=>-1); C.hold=range(C.kase.N).map(()=>-1);
+  C.sel=null; C.selKind=null; Snd.undo();
+  drawRooms(); drawTrays(); drawClues(); drawExtra(); saveProgress();
+});
+const VARIANT_HELP = {
+  liar:'<h2>One of them is lying</h2>'+
+    '<p>All the cards but one are true. Because of the liar, there is <b>no</b> way to place everyone that makes every card green \u2014 try it and see.</p>'+
+    '<p>So: pick a card, imagine it is the lie, and ignore it. Can you place everyone so all the <b>other</b> cards go green? If you can, you have found the liar.</p>'+
+    '<p>Tap a card to accuse it. The case closes when every other card is green and the accused one is red.</p>',
+  short:'<h2>Not enough</h2>'+
+    '<p>Place everyone so every card goes green, like usual. But this time, check whether there is <b>another</b> arrangement that also works.</p>'+
+    '<p>If there is, the file does not say enough, and the honest answer is to say so. Press <b>the file is incomplete</b>.</p>'+
+    '<p>Then you get to choose one more question to ask. Pick the one whose answer would actually rule something out \u2014 some of them are true but useless.</p>',
+  budget:'<h2>Sealed envelopes</h2>'+
+    '<p>Six clues, all face down. Each envelope tells you only <b>who it is about</b>.</p>'+
+    '<p>Open one by tapping it. You could open all six, but three is enough if you pick well. Think about who you still know nothing about.</p>'+
+    '<p>If everything you have opened fits your arrangement but the case will not close, that means what you have opened is not enough to be sure yet.</p>',
+  witness:'<h2>What they heard</h2>'+
+    '<p>Nobody tells you their floor. Instead they tell you what they could hear \u2014 <b>at least two people above me</b>, or <b>more people above me than below me</b>.</p>'+
+    '<p>That does not pin them to one floor, but it rules floors out. If at least two people were above you, you cannot be on the top two floors.</p>',
+  design:'<h2>Make your own case</h2>'+
+    '<p>First put every suspect on a floor. That is your secret answer.</p>'+
+    '<p>Then tap clues to add them. The counter tells you how many arrangements still fit. You want it to reach <b>one</b>.</p>'+
+    '<p>Try taking a clue away again once you get there. If the counter stays at one, that clue was not doing anything \u2014 a good case has no wasted cards.</p>'
+};
+$("helpBtn").addEventListener("click",()=>{
+  Snd.open();
+  const v=C.kase&&C.kase.variant;
+  if(VARIANT_HELP[v]){
+    modal(VARIANT_HELP[v]+'<button class="btn small" style="margin-top:6px" onclick="document.getElementById(\'modal\').classList.remove(\'on\')">Got it</button>');
+    return;
+  }
+  modal('<h2>How to play</h2>'+
+    '<p><b>1.</b> Read the cards. Each one is a fact about last night. All of them are true.</p>'+
+    '<p><b>2.</b> The house is drawn the way a house really is: <b>floor 1 is at the bottom</b> and the floors go up from there. The suspects wait on the street underneath it.</p>'+'<p><b>3.</b> Tap a suspect on the street, then tap a floor. That puts them on it.</p>'+
+    '<p><b>4.</b> Changed your mind? Tap the floor they are on to send them back down to the street.</p>'+
+    '<p><b>5.</b> Cards turn <b style="color:#4e8f5f">green</b> when you have got them right and '+
+    '<b style="color:#a8443b">red</b> when your arrangement breaks them. Grey means you have not put enough people in the house yet.</p>'+
+    '<p>When every card is green, the case closes on its own. There is only one arrangement that makes all of them true.</p>'+
+    '<button class="btn small" style="margin-top:6px" onclick="document.getElementById(\'modal\').classList.remove(\'on\')">Got it</button>');
+});
+
+/* ==================================================================
+   THE SORTING MACHINE
+   The machine has a secret rule. Test some things, then commit.
+   ================================================================== */
+const SHAPE_COLORS=["#d98324","#2f6d9e","#3d7a4a","#6b3f86"];
+const COLOR_NAMES=["orange","blue","green","purple"];
+function drawSpec(c,it,x,y,s){
+  const n=it.count, step=s*.30;
+  for(let k=0;k<n;k++){
+    const ox=x+(k-(n-1)/2)*step*1.15;
+    c.save(); c.translate(ox,y); c.beginPath();
+    const r=s*.20;
+    for(let i=0;i<it.sides;i++){
+      const ang=-Math.PI/2+i*2*Math.PI/it.sides;
+      const px=Math.cos(ang)*r, py=Math.sin(ang)*r;
+      i?c.lineTo(px,py):c.moveTo(px,py);
+    }
+    c.closePath();
+    if(it.filled){ c.fillStyle=SHAPE_COLORS[it.color]; c.fill(); }
+    else { c.strokeStyle=SHAPE_COLORS[it.color]; c.lineWidth=Math.max(1.8,s*.034); c.stroke(); }
+    c.restore();
+  }
+}
+function specCanvas(it,size){ const cv=document.createElement("canvas");
+  const c=fitCanvas(cv,size,size*.72); drawSpec(c,it,size/2,size*.36,size); return cv; }
+const RULES={
+  1:[{d:"the shapes are filled in",              f:i=>i.filled},
+     {d:"there are exactly 2 shapes",            f:i=>i.count===2},
+     {d:"the shapes are orange",                 f:i=>i.color===0},
+     {d:"the shapes are triangles",              f:i=>i.sides===3}],
+  2:[{d:"the shape has more than 4 corners",     f:i=>i.sides>4},
+     {d:"there is an odd number of shapes",      f:i=>i.count%2===1},
+     {d:"the shape has an even number of corners", f:i=>i.sides%2===0},
+     {d:"there are fewer than 3 shapes",         f:i=>i.count<3}],
+  3:[{d:"it is filled in AND has more than 4 corners", f:i=>i.filled&&i.sides>4},
+     {d:"it is orange OR there are 3 shapes",    f:i=>i.color===0||i.count===3},
+     {d:"it is hollow AND has an even number of corners", f:i=>!i.filled&&i.sides%2===0},
+     {d:"there are more than twice as many corners as shapes", f:i=>i.sides>i.count*2}]
+};
+function randSpec(){ return {sides:pick([3,4,5,6]),color:rnd(4),filled:Math.random()<.5,count:1+rnd(3)}; }
+function specKey(s){ return s.sides+"|"+s.color+"|"+(s.filled?1:0)+"|"+s.count; }
+function makeRuleCase(tier){
+  const rule=pick(RULES[tier]); const yes=[],no=[],seen=new Set(); let guard=0;
+  while((yes.length<10||no.length<10)&&guard++<6000){
+    const s=randSpec(),k=specKey(s);
+    if(seen.has(k)) continue; seen.add(k);
+    if(rule.f(s)){ if(yes.length<10) yes.push(s); } else { if(no.length<10) no.push(s); }
+  }
+  if(yes.length<6||no.length<6) return makeRuleCase(tier);
+  const seedsYes=[yes.pop(),yes.pop()], seedNo=[no.pop()];
+  const tests=shuffle([yes.pop(),yes.pop(),no.pop(),no.pop(),Math.random()<.5?yes.pop():no.pop()]);
+  const nYes=2+rnd(3), finalItems=[];
+  for(let i=0;i<nYes;i++) finalItems.push(yes.pop());
+  for(let i=0;i<6-nYes;i++) finalItems.push(no.pop());
+  if(finalItems.some(x=>!x)) return makeRuleCase(tier);
+  shuffle(finalItems);
+  return {tier,rule,seedsYes,seedNo,tests,finalItems,phase:1,ti:0,ruledOut:0,verdicts:{}};
+}
+const R={kase:null,id:null};
+function startRule(cs){
+  resultToken++;
+  R.kase=makeRuleCase(cs.tier); R.id=cs.id;
+  $("ruleTier").textContent=cs.title; renderRule(); go("s-rule");
+}
+function specCard(s,cls,mark,size,interactive){
+  const d=document.createElement(interactive?"button":"div");
+  d.className="card"+(cls?" "+cls:"");
+  d.appendChild(specCanvas(s,size||58));
+  if(mark){ const v=document.createElement("span"); v.className="verdict "+(cls==="acc"?"y":"n"); v.textContent=mark; d.appendChild(v); }
+  return d;
+}
+function renderRule(){
+  const k=R.kase, known=$("ruleKnown"); known.innerHTML="";
+  const lab=document.createElement("p"); lab.className="counter";
+  lab.textContent="The machine took these two, and spat this one out";
+  known.appendChild(lab);
+  const tray=document.createElement("div"); tray.className="cards";
+  k.seedsYes.forEach(s=>tray.appendChild(specCard(s,"acc","\u2713")));
+  k.seedNo.forEach(s=>tray.appendChild(specCard(s,"rej","\u2715")));
+  known.appendChild(tray);
+  const body=$("ruleBody"); body.innerHTML="";
+  k.phase===1 ? renderTest(body) : renderCommit(body);
+}
+function renderTest(body){
+  const k=R.kase;
+  $("rulePhase").textContent="Part one \u00b7 try "+(k.ti+1)+" of "+k.tests.length;
+  $("ruleHelp").innerHTML="The machine only takes things that follow one <b>secret rule</b>. "+
+    "Guess whether it will take this one, then find out. Guessing wrong is free \u2014 it still tells you something.";
+  const s=k.tests[k.ti];
+  const tray=document.createElement("div"); tray.className="cards";
+  tray.appendChild(specCard(s,"","",96)); body.appendChild(tray);
+  const row=document.createElement("div"); row.className="row";
+  [["It takes this one",true],["It spits this one out",false]].forEach(([t,v],i)=>{
+    const b=document.createElement("button"); b.className="btn small"+(i?" ghost":"");
+    b.textContent=t; b.addEventListener("click",()=>answerTest(v)); row.appendChild(b);
+  });
+  body.appendChild(row);
+}
+function answerTest(guessYes){
+  const k=R.kase, s=k.tests[k.ti], truth=k.rule.f(s), right=guessYes===truth;
+  if(right && !truth) k.ruledOut++;
+  right?Snd.yes():Snd.no();
+  const body=$("ruleBody"); body.innerHTML="";
+  const tray=document.createElement("div"); tray.className="cards";
+  tray.appendChild(specCard(s,truth?"acc":"rej",truth?"\u2713":"\u2715",96)); body.appendChild(tray);
+  const p=document.createElement("p"); p.className="sub"; p.style.textAlign="center";
+  p.innerHTML = truth ? "The machine <b>took</b> it."+(right?" You called it.":"")
+                      : "The machine <b>spat it out</b>."+(right?" Nice \u2014 knowing what it rejects is just as useful.":"");
+  body.appendChild(p);
+  const b=document.createElement("button"); b.className="btn";
+  b.textContent = k.ti===k.tests.length-1 ? "Now you sort them" : "Try another";
+  b.addEventListener("click",()=>{ k.ti++; if(k.ti>=k.tests.length) k.phase=2; renderRule(); });
+  body.appendChild(b);
+}
+function renderCommit(body){
+  const k=R.kase;
+  $("rulePhase").textContent="Part two \u00b7 your turn";
+  $("ruleHelp").innerHTML="No more trying. Tap each one <b>once</b> if you think the machine takes it, "+
+    "<b>twice</b> if you think it spits it out. Tap again to change your mind.";
+  const tray=document.createElement("div"); tray.className="cards";
+  k.finalItems.forEach((s,i)=>{
+    const d=specCard(s,"","",74,true);
+    const badge=document.createElement("span"); badge.className="verdict"; d.appendChild(badge);
+    function paintCard(){
+      const v=k.verdicts[i];
+      d.classList.toggle("acc",v===true); d.classList.toggle("rej",v===false);
+      badge.className="verdict "+(v===true?"y":v===false?"n":"");
+      badge.textContent=v===true?"\u2713":v===false?"\u2715":"";
+      badge.style.display=v===undefined?"none":"flex";
+    }
+    d.addEventListener("click",()=>{
+      const cur=k.verdicts[i];
+      k.verdicts[i]=cur===undefined?true:cur===true?false:undefined;
+      Snd.tap(); paintCard();
+      $("commitBtn").disabled=!k.finalItems.every((_,j)=>k.verdicts[j]!==undefined);
+    });
+    paintCard(); tray.appendChild(d);
+  });
+  body.appendChild(tray);
+  const b=document.createElement("button"); b.className="btn"; b.id="commitBtn";
+  b.textContent="That's my answer";
+  b.disabled=!k.finalItems.every((_,i)=>k.verdicts[i]!==undefined);
+  b.addEventListener("click",finishRule); body.appendChild(b);
+}
+function finishRule(){
+  const k=R.kase; let score=0;
+  k.finalItems.forEach((s,i)=>{ if(k.verdicts[i]===k.rule.f(s)) score++; });
+  const p=Store.profile(); p.closed=(p.closed||0)+1;
+  p.tiers=p.tiers||{}; p.tiers[R.id]=(p.tiers[R.id]||0)+1; Store.save();
+  Snd.stamp();
+  const W=Math.min(520,$("app").clientWidth-28), H=150;
+  const c=fitCanvas($("resultCanvas"),W,H);
+  c.fillStyle="#0a161a"; c.fillRect(0,0,W,H); lampGlow(c,W,H,W*.5,-H*.1,H*1.6);
+  const gap=W/(k.finalItems.length+1);
+  k.finalItems.forEach((s,i)=>{
+    drawSpec(c,s,gap*(i+1),H*.45,42);
+    const ok=k.verdicts[i]===k.rule.f(s);
+    c.fillStyle=ok?"#4e8f5f":"#a8443b"; c.font=mono(15); c.textAlign="center";
+    c.fillText(ok?"\u2713":"\u2715",gap*(i+1),H*.82);
+  });
+  $("stampText").textContent = score===6?"RULE FOUND":score>=5?"CLOSE":"REOPENED";
+  $("resultText").innerHTML="You got <b>"+score+" out of 6</b>.<br>The secret rule was: <b>"+k.rule.d+"</b>.<br><br>"+
+    (k.ruledOut>0
+      ? "You correctly guessed "+k.ruledOut+" that the machine would <b>reject</b>. That is the harder half of the job."
+      : "Next time, try guessing that it will <b>reject</b> something. Being wrong on purpose narrows it down fastest.");
+  $("againBtn").dataset.mode="r"; $("againBtn").dataset.id=R.id;
+  go("s-result");
+}
+
+/* ============================ the board ============================ */
+const CASES=[
+  {id:"c1",group:"Working it out",mode:"d",spec:{n:3,items:false,plain:true},title:"First Night",tag:"Case one \u00b7 start here",
+   desc:"Three suspects, a house with three floors. Read the cards, put everyone somewhere, make the cards turn green."},
+  {id:"c2",group:"Working it out",mode:"d",spec:{n:4,items:false},title:"Four Doors",tag:"Case two",
+   desc:"One more suspect, one more floor, and clues about who was directly above whom."},
+  {id:"c3",group:"Working it out",mode:"d",spec:{n:4,items:true},title:"What They Carried",tag:"Case three",
+   desc:"Now everyone was carrying something, and some clues are about the things instead of the people."},
+  {id:"c4",group:"Working it out",mode:"d",spec:{n:5,items:true},title:"Five Floors Up",tag:"Case four \u00b7 hardest",
+   desc:"Five suspects, five floors, five things. You will need to work through the clues more than once."},
+  {id:"c5",group:"New kinds of thinking",mode:"d",variant:"witness",spec:{n:4,items:false,witness:true},
+   title:"What They Heard",tag:"Case five \u00b7 new kind",
+   desc:"Nobody says which floor they were on. They tell you what they could hear from where they stood."},
+  {id:"c6",group:"New kinds of thinking",mode:"d",variant:"liar",spec:{n:4,items:false},
+   title:"One of Them Is Lying",tag:"Case six \u00b7 new kind",
+   desc:"Every card is true except one. The cards cannot all be true at once \u2014 find the liar and accuse them."},
+  {id:"c7",group:"New kinds of thinking",mode:"d",variant:"short",spec:{n:4,items:false},
+   title:"Not Enough",tag:"Case seven \u00b7 new kind",
+   desc:"This file may not say enough to be sure. If it does not, say so \u2014 then choose what to ask next."},
+  {id:"c8",group:"New kinds of thinking",mode:"d",variant:"budget",spec:{n:4,items:false},
+   title:"Sealed Envelopes",tag:"Case eight \u00b7 new kind",
+   desc:"Six envelopes, labelled with who they are about. Three of them are enough. Open as few as you can."},
+  {id:"design",group:"Your turn",mode:"d",variant:"design",spec:{n:4,items:false},
+   title:"Make Your Own Case",tag:"The other side of the desk",
+   desc:"Hide the suspects yourself, pick the clues, and watch until only one answer is possible. Then give it to somebody."},
+  {id:"g1",group:"Games of nerve",mode:"m",game:"nim",title:"Last Coin Wins",
+   tag:"Against Sable",
+   desc:"One pile of coins. Take one, two or three. Whoever takes the last one wins. Sable thinks you have no chance."},
+  {id:"g2",group:"Games of nerve",mode:"m",game:"scale",title:"The Heavy One",
+   tag:"A balance scale",
+   desc:"Nine parcels that look identical. One is heavier. You get three weighings, and it can be done in two."},
+  {id:"g3",group:"Games of nerve",mode:"m",game:"rewind",title:"Rewind",
+   tag:"Working backwards",
+   desc:"A machine did three things to a row of tiles. You can see how it ended. Work out how it started."},
+  {id:"g4",group:"Games of nerve",mode:"m",game:"route",title:"The Route",
+   tag:"Beat the curfew",
+   desc:"Three errands, streets that take time, and one place that does not open until later. Plan the evening."},
+  {id:"r1",group:"Sorting machines",mode:"r",tier:1,title:"The Sorting Machine",tag:"Machine one \u00b7 start here",
+   desc:"A machine keeps some things and rejects others. Work out the rule it is using."},
+  {id:"r2",group:"Sorting machines",mode:"r",tier:2,title:"Counting Corners",tag:"Machine two",
+   desc:"Still one rule, but it is not the first thing you will notice."},
+  {id:"r3",group:"Sorting machines",mode:"r",tier:3,title:"Two Things at Once",tag:"Machine three \u00b7 hardest",
+   desc:"This rule has two parts to it. One try will never be enough."}
+];
+const caseById = id => CASES.find(c=>c.id===id);
+
+function renderProfiles(){
+  const host=$("profileList"); host.innerHTML="";
+  Store.data.profiles.forEach(p=>{
+    const b=document.createElement("button"); b.className="btn";
+    b.textContent=p.name+"  \u00b7  "+(p.closed||0)+" closed";
+    b.addEventListener("click",()=>{ Store.data.current=p.id; Store.save(); Snd.open(); openBoard(); });
+    host.appendChild(b);
+  });
+  if(Store.data.profiles.length<4){
+    const b=document.createElement("button"); b.className="btn ghost"; b.textContent="+ New detective";
+    b.addEventListener("click",()=>{
+      modal('<h2>Sign in</h2><p>What should the agency call you?</p>'+
+        '<input class="nameinput" id="nm" maxlength="14" placeholder="Name">'+
+        '<button class="btn small" style="margin-top:12px" id="nmok">Start</button>');
+      const i=$("nm"); i.focus();
+      const submit=()=>{
+        const n=(i.value||"Detective").trim().slice(0,14)||"Detective";
+        Store.data.profiles.push({id:"p"+Date.now(),name:n,closed:0,tiers:{}});
+        Store.data.current=Store.data.profiles[Store.data.profiles.length-1].id; Store.save();
+        $("modal").classList.remove("on"); Snd.open(); openBoard();
+      };
+      $("nmok").addEventListener("click",submit);
+      i.addEventListener("keydown",e=>{ if(e.key==="Enter") submit(); });
+    });
+    host.appendChild(b);
+  }
+}
+/* ==================================================================
+   MINI GAMES
+   Each of these is its own little machine with its own controls, so
+   each one gets its own picture, its own one-line instruction and its
+   own help panel. Nothing is shared except the look.
+   ================================================================== */
+const M = { id:null, g:null, raf:null, s:null };
+const MINI = {};
+
+function startMini(cs){
+  resultToken++; cancelAnimationFrame(M.raf); M.raf=null;
+  M.id=cs.id; M.g=MINI[cs.game]; M.s=M.g.start(); M.token=(M.token||0)+1;
+  $("miniTitle").textContent=cs.title;
+  go("s-mini"); renderMini();
+  if(M.g.draw){
+    const W=$("miniStage").clientWidth, H=M.g.height||150;
+    const c=fitCanvas($("miniCanvas"),W,H);
+    (function loop(t){
+      if(current!=="s-mini"){ M.raf=null; return; }
+      c.clearRect(0,0,W,H); M.g.draw(c,W,H,t||0);
+      M.raf=requestAnimationFrame(loop);
+    })(0);
+  }
+}
+function renderMini(){
+  $("miniHow").innerHTML=M.g.how(M.s);
+  $("miniStatus").textContent=M.g.status(M.s);
+  const host=$("miniBody"); host.innerHTML="";
+  M.g.body(host, M.s);
+}
+function miniButton(host,label,fn,ghost,disabled){
+  const b=document.createElement("button");
+  b.className="btn"+(ghost?" ghost":""); b.textContent=label;
+  if(disabled) b.disabled=true; else b.addEventListener("click",fn);
+  host.appendChild(b); return b;
+}
+function miniSay(host,who,line){
+  const d=document.createElement("p"); d.className="say";
+  d.innerHTML="<b>"+who+":</b> "+line; host.appendChild(d);
+}
+function miniFinish(stamp, html, drawFn){
+  const p=Store.profile();
+  p.closed=(p.closed||0)+1; p.tiers=p.tiers||{};
+  p.tiers[M.id]=(p.tiers[M.id]||0)+1; Store.save();
+  Snd.stamp(); cancelAnimationFrame(M.raf); M.raf=null;
+  const W=Math.min(520,$("app").clientWidth-28), H=150;
+  const c=fitCanvas($("resultCanvas"),W,H);
+  c.fillStyle="#0a161a"; c.fillRect(0,0,W,H); lampGlow(c,W,H,W*.5,-H*.1,H*1.5);
+  if(drawFn) drawFn(c,W,H);
+  $("stampText").textContent=stamp;
+  $("resultText").innerHTML=html;
+  $("againBtn").dataset.mode="m"; $("againBtn").dataset.id=M.id;
+  go("s-result");
+}
+$("miniBack").addEventListener("click",()=>{ cancelAnimationFrame(M.raf); M.raf=null; openBoard(); });
+$("miniHelp").addEventListener("click",()=>{
+  Snd.open();
+  modal(M.g.help+'<button class="btn small" style="margin-top:6px" onclick="document.getElementById(\'modal\').classList.remove(\'on\')">Got it</button>');
+});
+
+/* ---------------- LAST COIN WINS -----------------------------------
+   One pile. Take one, two or three. Whoever takes the last coin wins.
+   The whole game is hidden in one fact: leave your opponent a multiple
+   of four and they cannot escape. That is reasoning from the end of
+   the game backwards, which is what makes it worth playing. */
+const TAUNTS = ["You go first. It won't help.",
+  "Take your time. I have all night.",
+  "I've played this game since before you were born.",
+  "Go on then. Pick a number.",
+  "You're just moving coins about, you know."];
+const RATTLED = ["...how are you doing that?",
+  "That's twice. Fine. I'm concentrating now.",
+  "You've worked something out, haven't you.",
+  "Beginner's luck. Obviously."];
+MINI.nim = {
+  height:132,
+  start(){ return { pile:pick([13,14,15]), turn:"you", wins:0, losses:0,
+                    over:false, msg:pick(TAUNTS), roundOver:false, took:0 }; },
+  how(s){ return "Take <b>1, 2 or 3</b> coins. Whoever takes the <b>last</b> coin wins the round. "+
+                 "Beat Sable <b>three times</b> to close the case."; },
+  status(s){ return "Rounds won: "+s.wins+" of 3 · "+s.pile+" coins left"; },
+  help:'<h2>Last coin wins</h2>'+
+    '<p>There is one pile of coins. You and Sable take turns. On your turn you take <b>1, 2 or 3</b> coins — your choice.</p>'+
+    '<p>Whoever takes the <b>very last coin</b> wins the round.</p>'+
+    '<p>Win three rounds to close the case. Sable is not very good at first, and gets a lot better once you have beaten her once.</p>'+
+    '<p>A hint, if you want one: instead of thinking about your move, think about <b>what you are leaving her</b>.</p>',
+  draw(c,W,H,t){
+    const s=M.s;
+    lampGlow(c,W,H,W*.5,-H*.2,H*1.3);
+    const per=Math.min(9,Math.ceil(s.pile/2)||1);
+    const cols=Math.min(8,Math.max(5,Math.ceil(Math.sqrt(s.pile*1.6))));
+    const rows=Math.ceil(s.pile/cols);
+    const gap=Math.min(34,(W-40)/cols), r=gap*.36;
+    const y0=H/2-(rows-1)*gap*.5;
+    for(let i=0;i<s.pile;i++){
+      const cx=W/2+((i%cols)-(cols-1)/2)*gap;
+      const cy=y0+Math.floor(i/cols)*gap;
+      c.beginPath(); c.arc(cx,cy,r,0,7);
+      c.fillStyle="#c99a3a"; c.fill();
+      c.strokeStyle="rgba(240,189,85,.85)"; c.lineWidth=1.5; c.stroke();
+      c.beginPath(); c.arc(cx-r*.25,cy-r*.25,r*.35,0,7);
+      c.fillStyle="rgba(255,235,190,.45)"; c.fill();
+    }
+    if(s.pile===0){
+      c.fillStyle="#55666c"; c.font=mono(13); c.textAlign="center"; c.textBaseline="middle";
+      c.fillText("EMPTY", W/2, H/2);
+    }
+  },
+  body(host,s){
+    if(s.roundOver){
+      miniSay(host,"Sable",s.msg);
+      if(s.wins>=3){ miniButton(host,"Close the case",()=>{
+        miniFinish("OUTPLAYED",
+          "You beat Sable three times. The trick, if you found it, is to always leave her a number of coins you can count in <b>fours</b> — 4, 8, 12. From there she cannot get back.<br><br>"+
+          "Working out what to do now by looking at how the game <b>ends</b> is a real method, and it has a name: working backwards.",
+          (c,W,H)=>{ c.fillStyle="#c99a3a"; for(let i=0;i<3;i++){
+            c.beginPath(); c.arc(W/2+(i-1)*40,H/2,16,0,7); c.fill(); } });
+      }); return; }
+      miniButton(host,"Next round",()=>{
+        s.pile=pick([13,14,15]); s.turn="you"; s.roundOver=false;
+        s.msg = s.wins>0 ? pick(RATTLED) : pick(TAUNTS);
+        Snd.open(); renderMini();
+      });
+      return;
+    }
+    miniSay(host,"Sable",s.msg);
+    const row=document.createElement("div"); row.className="row";
+    [1,2,3].forEach(k=>{
+      const b=document.createElement("button");
+      b.className="btn small"+(k>1?" ghost":"");
+      b.textContent="Take "+k;
+      b.disabled = s.turn!=="you" || k>s.pile;
+      b.addEventListener("click",()=>playerTake(k));
+      row.appendChild(b);
+    });
+    host.appendChild(row);
+  }
+};
+function playerTake(k){
+  const s=M.s;
+  if(s.turn!=="you" || k>s.pile) return;
+  s.pile-=k; Snd.tap();
+  if(s.pile===0){ endRound(true,s); return; }
+  s.turn="sable"; s.msg="Hm."; renderMini();
+  const tok=M.token;
+  setTimeout(()=>{
+    if(M.token!==tok || M.s!==s) return;
+    const perfect = s.pile%4;
+    // she is careless until you have beaten her once, then she stops being careless
+    const careless = s.wins===0 && Math.random()<0.45;
+    let take = (!careless && perfect>0) ? perfect : 1+rnd(Math.min(3,s.pile));
+    take=Math.max(1,Math.min(3,Math.min(take,s.pile)));
+    s.pile-=take; Snd.cross();
+    s.msg="I'll take "+take+".";
+    if(s.pile===0){ endRound(false,s); return; }
+    s.turn="you"; renderMini();
+  }, 700);
+}
+function endRound(playerWon, forState){
+  const s=forState||M.s;
+  if(M.s!==s) return;
+  s.roundOver=true; s.turn="none";
+  if(playerWon){ s.wins++; Snd.yes(); s.msg = s.wins>=3 ? "All right. You've got it. Well done."
+    : pick(RATTLED); }
+  else { s.losses++; Snd.no();
+    s.msg = s.losses>=2 ? "Again. Try watching what you leave me, not what you take."
+                        : "Mine. Last coin, my hand."; }
+  renderMini();
+}
+
+/* ---------------- THE HEAVY ONE ------------------------------------
+   Nine identical parcels, one heavier. A balance scale. The lesson is
+   that a weighing is only worth what it rules out, so the good move
+   splits what is left into three equal groups. */
+MINI.scale = {
+  height:170,
+  start(){ return { n:9, heavy:rnd(9), pans:range(9).map(()=>0), used:0, max:3,
+                    history:[], tilt:0, want:0, accusing:false, msg:"" }; },
+  how(s){ return "Nine parcels. <b>One is heavier</b> than the others. Put the same number on each side "+
+                 "and weigh. You get <b>3 weighings</b> \u2014 but it can be done in 2."; },
+  status(s){ return "Weighings used: "+s.used+" of "+s.max; },
+  help:'<h2>The heavy one</h2>'+
+    '<p>All nine parcels look the same. One of them weighs a bit more.</p>'+
+    '<p>Tap a parcel once to put it on the <b>left</b> side, twice for the <b>right</b> side, three times to take it off again.</p>'+
+    '<p>Both sides must have the <b>same number</b> of parcels or the scale tells you nothing. Then press <b>Weigh</b>.</p>'+
+    '<p>The side that goes <b>down</b> has the heavy one on it. If the scale stays level, the heavy one is in neither pan \u2014 which is just as useful.</p>'+
+    '<p>When you are sure, press <b>I know which one</b> and pick it.</p>',
+  draw(c,W,H,t){
+    const s=M.s;
+    lampGlow(c,W,H,W*.5,-H*.25,H*1.2);
+    s.tilt += (s.want-s.tilt)*0.12;
+    const cx=W/2, cy=H*.30, arm=Math.min(W*.33,120);
+    c.strokeStyle="#7f9298"; c.lineWidth=3; c.lineCap="round";
+    c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx,H-22); c.stroke();
+    c.beginPath(); c.moveTo(cx-26,H-22); c.lineTo(cx+26,H-22); c.stroke();
+    const dy=s.tilt*22;
+    c.strokeStyle="#c3d0d4"; c.lineWidth=4;
+    c.beginPath(); c.moveTo(cx-arm,cy+dy); c.lineTo(cx+arm,cy-dy); c.stroke();
+    [[-1,dy],[1,-dy]].forEach(([sgn,off],i)=>{
+      const px=cx+sgn*arm, py=cy+off;
+      c.strokeStyle="#7f9298"; c.lineWidth=1.5;
+      c.beginPath(); c.moveTo(px,py); c.lineTo(px,py+26); c.stroke();
+      c.beginPath(); c.moveTo(px-24,py+26); c.lineTo(px+24,py+26);
+      c.lineTo(px+16,py+38); c.lineTo(px-16,py+38); c.closePath();
+      c.fillStyle="#16292f"; c.fill(); c.strokeStyle="#3f5b63"; c.stroke();
+      const n=s.pans.filter(v=>v===(i===0?1:2)).length;
+      c.fillStyle=n?"#f0bd55":"#55666c"; c.font=mono(13); c.textAlign="center"; c.textBaseline="middle";
+      c.fillText(String(n), px, py+31);
+    });
+    c.fillStyle="#55666c"; c.font=mono(10); c.textAlign="center"; c.textBaseline="alphabetic";
+    c.fillText("LEFT", cx-arm, H-6); c.fillText("RIGHT", cx+arm, H-6);
+  },
+  body(host,s){
+    if(s.accusing){
+      const p=document.createElement("p"); p.className="say";
+      p.innerHTML="<b>Which one is it?</b> Tap the parcel you are sure about.";
+      host.appendChild(p);
+      const tray=document.createElement("div"); tray.className="tray";
+      range(s.n).forEach(i=>{
+        const b=document.createElement("button"); b.className="chip";
+        b.appendChild(parcelCanvas(i,0));
+        b.appendChild(document.createTextNode("#"+(i+1)));
+        b.addEventListener("click",()=>accuseParcel(i));
+        tray.appendChild(b);
+      });
+      host.appendChild(tray);
+      miniButton(host,"Wait, keep weighing",()=>{ s.accusing=false; Snd.tap(); renderMini(); },true);
+      return;
+    }
+    if(s.msg) miniSay(host,"The scale",s.msg);
+    const tray=document.createElement("div"); tray.className="tray";
+    range(s.n).forEach(i=>{
+      const st=s.pans[i];
+      const b=document.createElement("button"); b.className="chip"+(st?" sel":"");
+      b.appendChild(parcelCanvas(i,st));
+      b.appendChild(document.createTextNode(st===1?"LEFT":st===2?"RIGHT":"#"+(i+1)));
+      b.addEventListener("click",()=>{ s.pans[i]=(st+1)%3; Snd.tap(); renderMini(); });
+      tray.appendChild(b);
+    });
+    host.appendChild(tray);
+    const L=s.pans.filter(v=>v===1).length, R=s.pans.filter(v=>v===2).length;
+    const row=document.createElement("div"); row.className="row";
+    const w=document.createElement("button"); w.className="btn small";
+    w.textContent = s.used>=s.max ? "No weighings left \u2014 make your pick"
+                  : (L!==R) ? "Sides must match" : L===0 ? "Put some on first" : "Weigh";
+    w.disabled = (L!==R || L===0 || s.used>=s.max);
+    w.addEventListener("click",doWeigh); row.appendChild(w);
+    const a=document.createElement("button"); a.className="btn ghost small";
+    a.textContent="I know which one"; a.addEventListener("click",()=>{ s.accusing=true; Snd.open(); renderMini(); });
+    row.appendChild(a);
+    host.appendChild(row);
+    if(s.history.length){
+      const h=document.createElement("div");
+      s.history.forEach((line,i)=>{
+        const d=document.createElement("p"); d.className="clue ok"; d.style.margin="0 0 6px";
+        d.innerHTML='<span class="mark">'+(i+1)+'</span><span class="txt">'+line+'</span>';
+        h.appendChild(d);
+      });
+      host.appendChild(h);
+    }
+  }
+};
+function parcelCanvas(i, state){
+  const cv=document.createElement("canvas"); const S=30; const c=fitCanvas(cv,S,S);
+  const col = state===1 ? "#c9892b" : state===2 ? "#2f6d9e" : "#5c564a";
+  c.strokeStyle=col; c.fillStyle=col; c.lineWidth=2;
+  c.beginPath(); c.rect(S*.16,S*.24,S*.68,S*.54); c.stroke();
+  c.beginPath(); c.moveTo(S*.5,S*.24); c.lineTo(S*.5,S*.78); c.stroke();
+  c.beginPath(); c.moveTo(S*.16,S*.42); c.lineTo(S*.84,S*.42); c.stroke();
+  return cv;
+}
+function doWeigh(){
+  const s=M.s;
+  const L=range(s.n).filter(i=>s.pans[i]===1), R=range(s.n).filter(i=>s.pans[i]===2);
+  if(L.length!==R.length || !L.length || s.used>=s.max) return;
+  s.used++;
+  const heavyLeft=L.indexOf(s.heavy)>=0, heavyRight=R.indexOf(s.heavy)>=0;
+  s.want = heavyLeft ? 1 : heavyRight ? -1 : 0;
+  const names=a=>a.map(i=>"#"+(i+1)).join(", ");
+  if(heavyLeft){ s.msg="The left side went down."; s.history.push("Left ("+names(L)+") is heavier than right ("+names(R)+")."); }
+  else if(heavyRight){ s.msg="The right side went down."; s.history.push("Right ("+names(R)+") is heavier than left ("+names(L)+")."); }
+  else { s.msg="Level. The heavy one is not on the scale at all."; s.history.push("Level \u2014 so the heavy one is none of "+names(L.concat(R))+"."); }
+  Snd.dot();
+  s.pans=range(s.n).map(()=>0);
+  renderMini();
+}
+function accuseParcel(i){
+  const s=M.s;
+  if(i===s.heavy){
+    miniFinish(s.used<=2?"WEIGHED WELL":"FOUND IT",
+      "Parcel <b>#"+(i+1)+"</b> was the heavy one, found in <b>"+s.used+"</b> weighing"+(s.used===1?"":"s")+".<br><br>"+
+      (s.used<=2 ? "Two weighings for nine parcels is the best anyone can do. Each weighing split what was left into three, and three threes are nine."
+                 : "It can be done in two. The trick is to weigh <b>three against three</b>, which tells you which group of three it is in \u2014 even when the scale stays level."),
+      (c,W,H)=>{ c.fillStyle="#f0bd55"; c.font=mono(30,700); c.textAlign="center"; c.textBaseline="middle";
+                 c.fillText("#"+(i+1), W/2, H/2); });
+  } else {
+    s.accusing=false; s.msg="No \u2014 #"+(i+1)+" weighs the same as the rest. Keep going.";
+    Snd.no(); renderMini();
+  }
+}
+
+/* ---------------- REWIND -------------------------------------------
+   A machine did three things to a row of tiles. You can see how it
+   finished. Work out how it started. Undoing operations in reverse is
+   the whole idea, and it is what algebra feels like later on. */
+const TILE_COLS=["#c9892b","#2f6d9e","#3d7a4a","#6b3f86"];
+const OPS=[
+  {id:"swap12", label:"Swap the 1st and 2nd tiles",  f:a=>{const b=a.slice();[b[0],b[1]]=[b[1],b[0]];return b;}},
+  {id:"swap34", label:"Swap the 3rd and 4th tiles",  f:a=>{const b=a.slice();[b[2],b[3]]=[b[3],b[2]];return b;}},
+  {id:"swap14", label:"Swap the 1st and 4th tiles",  f:a=>{const b=a.slice();[b[0],b[3]]=[b[3],b[0]];return b;}},
+  {id:"shift",  label:"Everything shuffles one place to the right, and the last one comes round to the front",
+                f:a=>[a[3],a[0],a[1],a[2]]},
+  {id:"rev",    label:"The whole row turns round",   f:a=>a.slice().reverse()}
+];
+MINI.rewind = {
+  height:224,
+  start(){
+    const ops=shuffle(OPS.slice()).slice(0,3);
+    const startRow=shuffle([0,1,2,3]);
+    let end=startRow.slice(); ops.forEach(o=>end=o.f(end));
+    return { ops, answer:startRow, target:end, guess:[0,1,2,3], runs:0,
+             playing:false, step:-1, show:[0,1,2,3], sel:-1, msg:"", result:null };
+  },
+  how(s){ return "The safe's tiles are shown on top. The machine did <b>3 things</b> to them, in order. "+
+                 "Work out what the row looked like <b>before</b> the machine ran."; },
+  status(s){ return s.runs===0 ? "The machine has not been run yet" : "Runs used: "+s.runs; },
+  help:'<h2>Rewind</h2>'+
+    '<p>The top row is how the safe looks <b>now</b>, after the machine did its three things.</p>'+
+    '<p>The bottom row is your guess at how it looked <b>before</b>. Tap two tiles to swap them around.</p>'+
+    '<p>Press <b>Run the machine</b> and it will do all three things to your row, one at a time, so you can watch.</p>'+
+    '<p>You can run it as often as you like. But the quick way is to start from the safe\u2019s row and undo the three things <b>backwards</b> \u2014 last one first.</p>',
+  draw(c,W,H,t){
+    const s=M.s;
+    lampGlow(c,W,H,W*.5,-H*.3,H*1.2);
+    drawTileRow(c,W,44,s.target,"WHAT THE SAFE SHOWS NOW",-1);
+    drawTileRow(c,W,120,s.playing?s.show:s.guess,s.playing?"RUNNING...":"YOUR GUESS AT THE ROW BEFORE",s.playing?-1:s.sel);
+    if(!s.playing && s.result){
+      const same = s.result.every((v,i)=>v===s.target[i]);
+      drawTileRow(c,W,196,s.result, same?"AND THE MACHINE MADE":"BUT THE MACHINE MADE THIS",-1,
+                  same?"#4e8f5f":"#a8443b");
+    }
+  },
+  body(host,s){
+    if(s.msg) miniSay(host,"The machine",s.msg);
+    const list=document.createElement("div");
+    s.ops.forEach((o,i)=>{
+      const d=document.createElement("p");
+      d.className="clue"+(s.playing&&s.step===i?" ok":"");
+      d.style.margin="0 0 6px";
+      d.innerHTML='<span class="mark">'+(i+1)+'</span><span class="txt">'+o.label+'.</span>';
+      list.appendChild(d);
+    });
+    host.appendChild(list);
+    if(s.playing) return;
+    const tray=document.createElement("div"); tray.className="tray";
+    s.guess.forEach((tile,pos)=>{
+      const b=document.createElement("button"); b.className="chip"+(s.sel===pos?" sel":"");
+      b.appendChild(tileCanvas(tile,34));
+      b.appendChild(document.createTextNode(["1st","2nd","3rd","4th"][pos]));
+      b.addEventListener("click",()=>{
+        if(s.sel<0){ s.sel=pos; }
+        else if(s.sel===pos){ s.sel=-1; }
+        else { const g=s.guess.slice(); [g[s.sel],g[pos]]=[g[pos],g[s.sel]]; s.guess=g; s.sel=-1; }
+        Snd.tap(); renderMini();
+      });
+      tray.appendChild(b);
+    });
+    host.appendChild(tray);
+    miniButton(host,"Run the machine",runMachine);
+  }
+};
+function tileCanvas(tile,S){
+  const cv=document.createElement("canvas"); const c=fitCanvas(cv,S,S);
+  c.fillStyle=TILE_COLS[tile];
+  c.beginPath(); c.rect(S*.14,S*.14,S*.72,S*.72); c.fill();
+  c.fillStyle="rgba(255,255,255,.75)"; c.font=mono(Math.round(S*.4),700);
+  c.textAlign="center"; c.textBaseline="middle";
+  c.fillText("ABCD"[tile], S*.5, S*.52);
+  return cv;
+}
+function drawTileRow(c,W,y,row,label,sel,labelCol){
+  const S=42, gap=S+12, x0=W/2-(row.length-1)*gap/2;
+  c.fillStyle=labelCol||"#55666c"; c.font=mono(10); c.textAlign="center"; c.textBaseline="alphabetic";
+  c.fillText(label, W/2, y-30);
+  row.forEach((tile,i)=>{
+    const x=x0+i*gap;
+    c.fillStyle=TILE_COLS[tile];
+    c.beginPath(); c.rect(x-S/2,y-S/2,S,S); c.fill();
+    if(sel===i){ c.strokeStyle="#f0bd55"; c.lineWidth=3; c.strokeRect(x-S/2-3,y-S/2-3,S+6,S+6); }
+    c.fillStyle="rgba(255,255,255,.8)"; c.font=mono(17,700);
+    c.textAlign="center"; c.textBaseline="middle";
+    c.fillText("ABCD"[tile], x, y+1);
+  });
+}
+function runMachine(){
+  const s=M.s;
+  if(s.playing) return;
+  s.playing=true; s.step=-1; s.show=s.guess.slice(); s.msg=""; s.result=null; s.runs++;
+  renderMini();
+  let i=0; const tok=M.token;
+  (function step(){
+    if(M.token!==tok || M.s!==s) return;
+    if(i>=s.ops.length){
+      const ok = s.show.every((v,ix)=>v===s.target[ix]);
+      s.playing=false; s.step=-1;
+      if(ok){
+        s.result=s.show.slice();
+        miniFinish(s.runs===1?"FIRST TRY":"SAFE OPEN",
+          "The safe is open. You got there in <b>"+s.runs+"</b> run"+(s.runs===1?"":"s")+".<br><br>"+
+          (s.runs===1 ? "First try. That means you undid the three steps <b>backwards</b> instead of guessing \u2014 which is exactly the trick."
+                      : "Next time, start from the safe's row and undo the last thing first, then the second, then the first. Backwards is much faster than guessing."),
+          (c,W,H)=>drawTileRow(c,W,H/2,s.target,"OPENED",-1));
+        return;
+      }
+      s.result=s.show.slice();
+      s.msg="Not quite \u2014 look at the bottom row. That is what your guess turns into. It needs to match the top row.";
+      Snd.no(); renderMini(); return;
+    }
+    s.step=i; s.show=s.ops[i].f(s.show); Snd.tap(); i++;
+    renderMini(); setTimeout(step,850);
+  })();
+}
+
+/* ---------------- THE ROUTE ----------------------------------------
+   Six places, streets with minutes on them, three errands and a
+   curfew. One place does not open until later, so the order you do
+   things in matters as much as the distance. Planning under a
+   constraint, which is a different muscle from deduction. */
+const PLACES=[
+  {name:"The Agency",   x:.50,y:.88},
+  {name:"The Docks",    x:.13,y:.60},
+  {name:"The Bakery",   x:.24,y:.18},
+  {name:"The Clocktower",x:.62,y:.09},
+  {name:"The Station",  x:.90,y:.40},
+  {name:"The Park",     x:.74,y:.70}
+];
+const STREETS=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[1,5],[2,4]];
+function routeDist(w){
+  const n=PLACES.length, d=range(n).map(()=>range(n).map(()=>9999));
+  for(let i=0;i<n;i++) d[i][i]=0;
+  STREETS.forEach(([a,b],i)=>{ d[a][b]=Math.min(d[a][b],w[i]); d[b][a]=d[a][b]; });
+  for(let k=0;k<n;k++)for(let i=0;i<n;i++)for(let j=0;j<n;j++)
+    if(d[i][k]+d[k][j]<d[i][j]) d[i][j]=d[i][k]+d[k][j];
+  return d;
+}
+function routeCost(order, d, openNode, openAt){
+  let t=0, cur=0;
+  for(const stop of order){
+    t+=d[cur][stop];
+    if(stop===openNode) t=Math.max(t,openAt);
+    cur=stop;
+  }
+  return t+d[cur][0];
+}
+function routeBest(w, stops, openNode, openAt){
+  const N=PLACES.length, adj=range(N).map(()=>[]);
+  STREETS.forEach(([a,b],i)=>{ adj[a].push([b,w[i]]); adj[b].push([a,w[i]]); });
+  const bit=n=>stops.indexOf(n), FULL=(1<<stops.length)-1, S=FULL+1;
+  const key=(n,m)=>n*S+m, total=N*S;
+  const dist=new Array(total).fill(Infinity), seen=new Array(total).fill(false);
+  dist[key(0,0)]=0;
+  for(let it=0; it<total; it++){
+    let u=-1, bd=Infinity;
+    for(let i=0;i<total;i++) if(!seen[i]&&dist[i]<bd){ bd=dist[i]; u=i; }
+    if(u<0) break; seen[u]=true;
+    const n=Math.floor(u/S), m=u%S, t=dist[u];
+    adj[n].forEach(([v,cost])=>{
+      let nt=t+cost, nm=m; const bv=bit(v);
+      if(v===openNode && bv>=0 && !(m&(1<<bv)) && nt<openAt) nt=openAt;   // stand about waiting
+      if(bv>=0) nm=m|(1<<bv);
+      const k=key(v,nm); if(nt<dist[k]) dist[k]=nt;
+    });
+  }
+  return dist[key(0,FULL)];
+}
+function permute3(a){
+  const out=[];
+  for(let i=0;i<3;i++)for(let j=0;j<3;j++)for(let k=0;k<3;k++)
+    if(i!==j&&j!==k&&i!==k) out.push([a[i],a[j],a[k]]);
+  return out;
+}
+function clockStr(mins){
+  const h=8+Math.floor(mins/60), m=mins%60;
+  return h+":"+(m<10?"0":"")+m;
+}
+MINI.route = {
+  height:196,
+  start(){
+    for(let attempt=0; attempt<400; attempt++){
+      const w=STREETS.map(()=>4+rnd(8));
+      const d=routeDist(w);
+      const stops=shuffle([1,2,3,4,5]).slice(0,3);
+      const openNode=pick(stops), openAt=18+rnd(14);
+      const costs=permute3(stops).map(o=>routeCost(o,d,openNode,openAt));
+      const worst=Math.max(...costs);
+      const best=routeBest(w,stops,openNode,openAt);
+      if(!isFinite(best)) continue;
+      if(worst-best<8) continue;            // the order has to actually matter
+      if(best<14 || best>70) continue;
+      return { w, d, stops, openNode, openAt, best,
+               budget:best+3, path:[0], times:[0], time:0, visited:[], failed:false, msg:"" };
+    }
+    return null;
+  },
+  how(s){ if(!s) return "Laying out the streets\u2026";
+    return "Do all three errands and be back at <b>The Agency</b> before curfew at <b>"+
+    clockStr(s.budget)+"</b>. The numbers on the streets are minutes. "+
+    "<b>"+PLACES[s.openNode].name+"</b> does not open until "+clockStr(s.openAt)+"."; },
+  status(s){ if(!s) return "No route yet";
+    return "Clock: "+clockStr(s.time)+" \u00b7 curfew "+clockStr(s.budget)+
+    " \u00b7 errands done "+s.visited.length+" of 3"; },
+  help:'<h2>The route</h2>'+
+    '<p>You start at The Agency. Tap a place to walk there \u2014 you can only walk along a street that joins where you are to where you want to go.</p>'+
+    '<p>The number on each street is how many <b>minutes</b> it takes. The clock counts up as you walk.</p>'+
+    '<p>Three places have errands. Visit all three and get back to The Agency <b>before curfew</b>.</p>'+
+    '<p>One place is shut until later. If you get there early you have to <b>stand about waiting</b>, and the clock keeps running. So think about what order to do things in, not just which way is shortest.</p>',
+  draw(c,W,H,t){
+    const s=M.s; if(!s) return;
+    lampGlow(c,W,H,W*.5,-H*.3,H*1.3);
+    const px=i=>20+PLACES[i].x*(W-40), py=i=>18+PLACES[i].y*(H-40);
+    STREETS.forEach(([a,b],i)=>{
+      const onPath = s.path.some((n,ix)=> ix<s.path.length-1 &&
+        ((s.path[ix]===a&&s.path[ix+1]===b)||(s.path[ix]===b&&s.path[ix+1]===a)));
+      c.strokeStyle = onPath ? "rgba(240,189,85,.85)" : "rgba(127,166,173,.30)";
+      c.lineWidth = onPath ? 3 : 1.5;
+      c.beginPath(); c.moveTo(px(a),py(a)); c.lineTo(px(b),py(b)); c.stroke();
+      const mx=(px(a)+px(b))/2, my=(py(a)+py(b))/2;
+      c.fillStyle="#0a161a"; c.beginPath(); c.arc(mx,my,9,0,7); c.fill();
+      c.fillStyle = onPath ? "#f0bd55" : "#7f9298";
+      c.font=mono(10); c.textAlign="center"; c.textBaseline="middle";
+      c.fillText(String(s.w[i]), mx, my);
+    });
+    PLACES.forEach((pl,i)=>{
+      const here=s.path[s.path.length-1]===i;
+      const need=s.stops.indexOf(i)>=0, done=s.visited.indexOf(i)>=0;
+      c.beginPath(); c.arc(px(i),py(i), i===0?11:9, 0,7);
+      c.fillStyle = here ? "#f0bd55" : done ? "#4e8f5f" : need ? "#8e2b24" : "#24393f";
+      c.fill();
+      c.strokeStyle="#0a161a"; c.lineWidth=2; c.stroke();
+      if(i===s.openNode && !done){
+        c.fillStyle="#f0bd55"; c.font=mono(9); c.textAlign="center"; c.textBaseline="middle";
+        c.fillText("\u23f0", px(i), py(i)-16);
+      }
+      c.fillStyle = here?"#f0bd55":"#93a3a8"; c.font=mono(9); c.textAlign="center";
+      c.textBaseline = py(i)>H*.6 ? "top" : "alphabetic";
+      c.fillText(pl.name.replace("The ","").toUpperCase(), px(i), py(i)+(py(i)>H*.6?15:-14));
+    });
+  },
+  body(host,s){
+    if(!s){ miniSay(host,"The agency","Could not lay out a route tonight \u2014 try again.");
+      miniButton(host,"Try again",()=>{ M.s=MINI.route.start(); renderMini(); }); return; }
+    if(s.msg) miniSay(host,"You",s.msg);
+    if(s.failed){
+      miniButton(host,"Try this evening again",()=>{
+        s.path=[0]; s.times=[0]; s.time=0; s.visited=[]; s.failed=false; s.msg="";
+        Snd.open(); renderMini();
+      });
+      miniButton(host,"Give me a different evening",()=>{
+        const nu=MINI.route.start(); if(nu) M.s=nu; Snd.open(); renderMini();
+      },true);
+      return;
+    }
+    const cur=s.path[s.path.length-1];
+    const nbrs=[];
+    STREETS.forEach(([a,b],i)=>{ if(a===cur) nbrs.push([b,s.w[i]]); if(b===cur) nbrs.push([a,s.w[i]]); });
+    nbrs.forEach(([n,mins])=>{
+      const need=s.stops.indexOf(n)>=0, done=s.visited.indexOf(n)>=0;
+      const b=document.createElement("button"); b.className="btn small"+(need&&!done?"":" ghost");
+      b.style.marginBottom="8px";
+      b.textContent=PLACES[n].name+" \u2014 "+mins+" min"+(need&&!done?"  (errand)":done?"  (done)":"");
+      b.addEventListener("click",()=>routeGo(n,mins));
+      host.appendChild(b);
+    });
+    if(s.path.length>1)
+      miniButton(host,"Take that step back",()=>{
+        s.path.pop(); s.times.pop();
+        s.time=s.times[s.times.length-1];
+        s.visited=s.visited.filter(v=>s.path.indexOf(v)>=0);
+        s.msg=""; Snd.undo(); renderMini();
+      },true);
+    miniButton(host,"Start the evening again",()=>{
+      s.path=[0]; s.times=[0]; s.time=0; s.visited=[]; s.msg=""; Snd.undo(); renderMini();
+    },true);
+  }
+};
+function routeGo(n,mins){
+  const s=M.s;
+  s.time+=mins; s.path.push(n); s.msg=""; Snd.tap();
+  if(n===s.openNode && s.visited.indexOf(n)<0 && s.time<s.openAt){
+    s.msg=PLACES[n].name+" was still shut. You waited outside until "+clockStr(s.openAt)+".";
+    s.time=s.openAt;
+  }
+  if(s.stops.indexOf(n)>=0 && s.visited.indexOf(n)<0) s.visited.push(n);
+  s.times.push(s.time);
+  if(s.time>s.budget){
+    s.failed=true; Snd.no();
+    s.msg="It is "+clockStr(s.time)+". You are past curfew, and you did "+
+      (s.visited.length<3?"not even finish the errands":"finish, but too late")+
+      ". It can be done in "+s.best+" minutes.";
+    renderMini(); return;
+  }
+  if(n===0 && s.visited.length===3){
+    miniFinish(s.time<=s.best?"NOT A MINUTE WASTED":"HOME IN TIME",
+      "All three errands, home by <b>"+clockStr(s.time)+"</b>, with curfew at "+clockStr(s.budget)+"."+
+      (s.time<=s.best ? "<br><br>That is the fastest it can be done. You got the <b>order</b> right, not just the streets."
+                      : "<br><br>The best possible was "+s.best+" minutes. The saving is almost always in doing the shut place at the right moment instead of walking back to it."),
+      (c,W,H)=>{ c.fillStyle="#f0bd55"; c.font=mono(26,700); c.textAlign="center"; c.textBaseline="middle";
+                 c.fillText(clockStr(s.time), W/2, H/2); });
+    return;
+  }
+  renderMini();
+}
+
+function openBoard(){
+  resultToken++; cancelAnimationFrame(sceneRAF);
+  const p=Store.profile();
+  $("whoLabel").textContent=p.name+" \u00b7 "+(p.closed||0)+" closed";
+  const host=$("caseList"); host.innerHTML="";
+  if(p.wip && caseById(p.wip.kase.id)){
+    const b=document.createElement("button"); b.className="btn";
+    b.textContent="Resume: "+p.wip.kase.title;
+    b.addEventListener("click",()=>{ Snd.open(); startCase(caseById(p.wip.kase.id),p.wip); });
+    host.appendChild(b);
+  }
+  if((p.made||[]).length){
+    const h=document.createElement("p"); h.className="boardhead"; h.textContent="Cases you made";
+    host.appendChild(h);
+  }
+  (p.made||[]).forEach((m,i)=>{
+    const btn=document.createElement("button"); btn.className="filebtn";
+    btn.innerHTML='<div class="file"><p class="tag">Made by you</p><p class="name">'+
+      m.name.replace(/[<>]/g,"")+'</p><p class="desc">'+m.roomOf.length+
+      ' suspects, '+m.clues.length+' clues. You already know the answer to this one.</p></div>';
+    btn.addEventListener("click",()=>{ Snd.open();
+      startCase({id:"made"+i,title:m.name,variant:"plain",spec:{n:m.roomOf.length,items:false},fixed:m}); });
+    host.appendChild(btn);
+  });
+  let lastGroup=null;
+  CASES.forEach(cs=>{
+    if(cs.group!==lastGroup){
+      lastGroup=cs.group;
+      const h=document.createElement("p"); h.className="boardhead"; h.textContent=cs.group;
+      host.appendChild(h);
+    }
+    const btn=document.createElement("button"); btn.className="filebtn";
+    const done=(p.tiers||{})[cs.id]||0;
+    btn.innerHTML='<div class="file">'+(done?'<span class="solved">CLOSED \u00d7'+done+'</span>':'')+
+      '<p class="tag">'+cs.tag+'</p><p class="name">'+cs.title+'</p><p class="desc">'+cs.desc+'</p></div>';
+    btn.addEventListener("click",()=>{ Snd.open();
+      cs.mode==="m"?startMini(cs) : cs.mode==="d"?startCase(cs):startRule(cs); });
+    host.appendChild(btn);
+  });
+  go("s-board");
+}
+$("boardBack").addEventListener("click",()=>{ renderProfiles(); go("s-title"); });
+$("caseBack").addEventListener("click",openBoard);
+$("ruleBack").addEventListener("click",openBoard);
+$("resultBack").addEventListener("click",openBoard);
+$("againBtn").addEventListener("click",e=>{
+  const cs=caseById(e.currentTarget.dataset.id); Snd.open();
+  cs.mode==="m"?startMini(cs) : cs.mode==="d"?startCase(cs):startRule(cs);
+});
+let resizeT=null;
+window.addEventListener("resize",()=>{
+  clearTimeout(resizeT);
+  resizeT=setTimeout(()=>{
+    if(current==="s-case"&&C.kase){ buildCase(); startScene(); }
+    if(current==="s-rule"&&R.kase) renderRule();
+  },220);
+});
+
+(function titleArt(){
+  const wrap=$("titleArtWrap"), cv=$("titleArt");
+  const W=Math.min(520,wrap.clientWidth||330), H=150;
+  const c=fitCanvas(cv,W,H), who=CAST[0];
+  function frame(t){
+    c.clearRect(0,0,W,H);
+    lampGlow(c,W,H,W*.62,H*.06,H*1.15);
+    c.strokeStyle="rgba(240,189,85,.5)"; c.lineWidth=2;
+    c.beginPath(); c.moveTo(W*.62,0); c.lineTo(W*.62,H*.16); c.stroke();
+    c.fillStyle="#f0bd55"; c.beginPath(); c.arc(W*.62,H*.21,7,0,7); c.fill();
+    c.shadowColor="rgba(240,189,85,.9)"; c.shadowBlur=26;
+    c.beginPath(); c.arc(W*.62,H*.21,4,0,7); c.fill(); c.shadowBlur=0;
+    c.strokeStyle="rgba(127,166,173,.2)"; c.lineWidth=1;
+    c.beginPath(); c.moveTo(0,H-10); c.lineTo(W,H-10); c.stroke();
+    drawAnimal(c,who,W*.40,H-10,78,t);
+    if(current==="s-title") requestAnimationFrame(frame);
+  }
+  titleTick=()=>requestAnimationFrame(frame); titleTick();
+})();
+renderProfiles();
+
+</script>
+</body>
+</html>

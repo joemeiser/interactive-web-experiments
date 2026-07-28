@@ -9,6 +9,7 @@ const SECTIONS = [
       { folder: "03_spelling_quest", title: "Spelling Quest", thumb: "thumbnail.jpg" },
       { folder: "04_3rd_grade_prep", title: "3rd Grade Prep", thumb: "blockrise_thumb.jpg" },
       { folder: "05_5th_grade_prep", title: "5th Grade Prep", thumb: "sunward_thumbnail.jpg" },
+      { folder: "06_lamplight_detective_agency", title: "Lamplight Detective Agency", thumb: "lamplight.jpg" },
     ],
   },
   {
