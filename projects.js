@@ -32,6 +32,7 @@ const SECTIONS = [
       { folder: "14_physics_sandbox", title: "Physics Sandbox", thumb: "physics_thumb.jpg" },
       { folder: "15_specimen_generator", title: "Specimen Generator", thumb: "specimen_2.jpg" },
       { folder: "16_audio_reactive_visualizer", title: "Audio Reactive Visualizer", thumb: "11_audio_reactive_visualizer.jpg" },
+      { folder: "17_boids", title: "Boids", thumb: "thumb.jpg" },
     ],
   },
   {
