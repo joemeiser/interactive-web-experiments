@@ -45,6 +45,7 @@ const SECTIONS = [
       { folder: "04_laser_miner", title: "Laser Miner", thumb: "laser_miner.jpg" },
       { folder: "05_space_bud", title: "Space Bud", thumb: "thumb.jpg" },
       { folder: "06_monster_mayhem", title: "Monster Mayhem", thumb: "thumb2.jpg" },
+      { folder: "07_downtown_cafe", title: "Downtown Cafe", thumb: "downtown-cafe-thumbnail.jpg" },
     ],
   },
 ];
