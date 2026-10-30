@@ -33,6 +33,7 @@ const SECTIONS = [
       { folder: "15_specimen_generator", title: "Specimen Generator", thumb: "specimen_2.jpg" },
       { folder: "16_audio_reactive_visualizer", title: "Audio Reactive Visualizer", thumb: "11_audio_reactive_visualizer.jpg" },
       { folder: "17_boids", title: "Boids", thumb: "thumb.jpg" },
+      { folder: "18_coin_toss", title: "Coin Toss", thumb: "quarter-toss-thumbnail.jpg" },
     ],
   },
   {
